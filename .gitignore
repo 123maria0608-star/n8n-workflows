@@ -1,5 +1,7 @@
-node_modules/
+node_modules
 .env
 .n8n/
 *.log
 demo/out/
+.claude-flow/
+.playwright-mcp/
