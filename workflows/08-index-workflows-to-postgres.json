@@ -1,0 +1,251 @@
+{
+  "id": "mpIndexer0000008",
+  "name": "08 Index workflows into Postgres (pgvector)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Index the workflows into Postgres\nAsks n8n's own REST API for every workflow, builds a one-paragraph description of each (name, trigger, nodes, sticky notes), turns it into a vector, and upserts it into `workflow_index` with pgvector.\n\nRuns nightly and on demand. Workflow 07 searches this table; 06 is the chat on top.",
+        "width": 600,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Nightly 02:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Run now (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n8nBase",
+              "name": "n8nBase",
+              "value": "http://localhost:5678",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').item.json.n8nBase }}/api/v1/workflows",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "name": "GET /api/v1/workflows (n8n public API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "n8n API key (self)",
+          "id": "mpCredN8nApi0006"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "name": "One item per workflow",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst DIM = 256;\nconst STOP = new Set('a an the and or of to in on for with is are be by at as it this that from into when what how do does which who does'.split(' '));\nfunction stem(w) {           // crude suffix stripping so calls/called/calling all land on \"call\"\n  return w.replace(/(ings?|ed|es|s)$/, '').replace(/(ly|er)$/, '') || w;\n}\nfunction tokens(text) {\n  return String(text || '').toLowerCase().replace(/[^a-z0-9\\s-]/g, ' ').split(/\\s+/)\n    .filter(w => w.length > 2 && !STOP.has(w)).map(stem);\n}\nfunction fnv(str) {            // FNV-1a 32-bit hash -> which dimension a word lands in\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }\n  return h;\n}\nfunction embed(text) {\n  const v = new Array(DIM).fill(0);\n  for (const w of tokens(text)) {\n    const h = fnv(w);\n    v[h % DIM] += (h & 0x80000000) ? -1 : 1;   // sign from one hash bit spreads words out\n  }\n  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;   // ‖v‖\n  return v.map(x => +(x / norm).toFixed(6));                        // unit length, so a·b == cos θ\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const w = item.json;\n  const nodes = w.nodes || [];\n  const trig = nodes.find(n => /trigger|webhook/i.test(n.type) && !/stickyNote/.test(n.type));\n  let trigger = 'unknown';\n  if (trig) {\n    const t = trig.type.split('.').pop();\n    if (t === 'webhook') trigger = `webhook ${trig.parameters?.httpMethod || 'POST'} /${trig.parameters?.path || ''}`;\n    else if (t === 'scheduleTrigger') trigger = `schedule ${trig.parameters?.rule?.interval?.[0]?.expression || ''}`;\n    else if (t === 'chatTrigger') trigger = 'chat';\n    else if (t === 'errorTrigger') trigger = 'error workflow';\n    else if (t === 'executeWorkflowTrigger') trigger = 'called by another workflow';\n    else trigger = t;\n  }\n  const notes = nodes.filter(n => n.type === 'n8n-nodes-base.stickyNote').map(n => n.parameters?.content || '').join(' ');\n  const nodeNames = nodes.filter(n => n.type !== 'n8n-nodes-base.stickyNote').map(n => n.name).join(', ');\n  const description = `${w.name}. Trigger: ${trigger}. ${notes.replace(/[#*`]/g, '')} Nodes: ${nodeNames}.`.replace(/\\s+/g, ' ').trim();\n  out.push({ json: { id: w.id, name: w.name, description, trigger,\n                     nodeCount: nodes.filter(n => n.type !== 'n8n-nodes-base.stickyNote').length,\n                     active: !!w.active, vector: JSON.stringify(embed(description)) } });\n}\nreturn out;\n"
+      },
+      "name": "Describe + embed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_index (id, name, description, trigger, node_count, active, embedding, indexed_at)\nVALUES ($1, $2, $3, $4, $5, $6, $7::vector, now())\nON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, trigger = EXCLUDED.trigger,\n  node_count = EXCLUDED.node_count, active = EXCLUDED.active, embedding = EXCLUDED.embedding, indexed_at = now()\nRETURNING id, name;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.name, $json.description, $json.trigger, $json.nodeCount, $json.active, $json.vector] }}"
+        }
+      },
+      "name": "Upsert into workflow_index",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres (workflow index)",
+          "id": "mpCredPg00000005"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.all().map(i => i.json);\nreturn [{ json: { indexed: rows.length, workflows: rows.map(r => r.name) } }];\n"
+      },
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Nightly 02:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "GET /api/v1/workflows (n8n public API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/v1/workflows (n8n public API)": {
+      "main": [
+        [
+          {
+            "node": "One item per workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per workflow": {
+      "main": [
+        [
+          {
+            "node": "Describe + embed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe + embed": {
+      "main": [
+        [
+          {
+            "node": "Upsert into workflow_index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert into workflow_index": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}

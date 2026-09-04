@@ -1,6 +1,21 @@
 {
+  "id": "mpFollowupCron04",
   "name": "04 Scheduled follow-up: weekday cron with tag-based state",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Scheduled follow-up\nRuns weekdays at 10:00 shop time. Pulls contacts the AI could not reach, decides per contact whether to try again, paces the calls, and tags each attempt.\n\nState lives in CRM tags (ai-attempt-N, ai-booked, ai-do-not-call...), so what the owner sees in the CRM and what this job believes can never drift apart.",
+        "width": 560,
+        "height": 190
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
     {
       "parameters": {
         "rule": {
@@ -21,17 +36,179 @@
       ]
     },
     {
+      "parameters": {},
+      "name": "Run now (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "vapiBase",
+              "name": "vapiBase",
+              "value": "https://api.vapi.ai",
+              "type": "string"
+            },
+            {
+              "id": "ghlBase",
+              "name": "ghlBase",
+              "value": "https://services.leadconnectorhq.com",
+              "type": "string"
+            },
+            {
+              "id": "twilioBase",
+              "name": "twilioBase",
+              "value": "https://api.twilio.com",
+              "type": "string"
+            },
+            {
+              "id": "logBase",
+              "name": "logBase",
+              "value": "https://your-log-endpoint.example.com",
+              "type": "string"
+            },
+            {
+              "id": "leadWebhookSecret",
+              "name": "leadWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiWebhookSecret",
+              "name": "vapiWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantId",
+              "name": "vapiAssistantId",
+              "value": "asst_speed_to_lead",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantIdFollowup",
+              "name": "vapiAssistantIdFollowup",
+              "value": "asst_follow_up",
+              "type": "string"
+            },
+            {
+              "id": "vapiPhoneNumberId",
+              "name": "vapiPhoneNumberId",
+              "value": "pn_xxx",
+              "type": "string"
+            },
+            {
+              "id": "ghlLocationId",
+              "name": "ghlLocationId",
+              "value": "loc_xxx",
+              "type": "string"
+            },
+            {
+              "id": "twilioAccountSid",
+              "name": "twilioAccountSid",
+              "value": "ACxxxxxxxx",
+              "type": "string"
+            },
+            {
+              "id": "businessName",
+              "name": "businessName",
+              "value": "Reflections Mobile Detailing",
+              "type": "string"
+            },
+            {
+              "id": "ownerEmail",
+              "name": "ownerEmail",
+              "value": "owner@example.com",
+              "type": "string"
+            },
+            {
+              "id": "oncallEmail",
+              "name": "oncallEmail",
+              "value": "maria@example.com",
+              "type": "string"
+            },
+            {
+              "id": "alertFrom",
+              "name": "alertFrom",
+              "value": "alerts@example.com",
+              "type": "string"
+            },
+            {
+              "id": "slackWebhookUrl",
+              "name": "slackWebhookUrl",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "followupMaxAttempts",
+              "name": "followupMaxAttempts",
+              "value": 4,
+              "type": "number"
+            },
+            {
+              "id": "followupWindowDays",
+              "name": "followupWindowDays",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "paceSeconds",
+              "name": "paceSeconds",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "n8nBase",
+              "name": "n8nBase",
+              "value": "http://localhost:5678",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
       "parameters": {
         "method": "GET",
-        "url": "https://services.leadconnectorhq.com/contacts/",
+        "url": "={{ $('Config').item.json.ghlBase }}/contacts/",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
               "name": "locationId",
-              "value": "={{ $env.GHL_LOCATION_ID }}"
+              "value": "={{ $('Config').item.json.ghlLocationId }}"
             },
             {
               "name": "query",
@@ -42,33 +219,19 @@
               "value": "100"
             }
           ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Version",
-              "value": "2021-07-28"
-            }
-          ]
-        },
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 2000
-          }
         }
       },
       "name": "Find contacts tagged ai-no-answer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        220,
+        440,
         300
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "GoHighLevel API token"
+          "name": "GoHighLevel API token",
+          "id": "mpCredGhl0000002"
         }
       }
     },
@@ -81,19 +244,19 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        440,
+        660,
         300
       ]
     },
     {
       "parameters": {
-        "jsCode": "\n// State lives in the CRM's tags, so what the owner sees in the CRM and what\n// this job believes can never drift apart.\n//   ai-booked / ai-do-not-call / ai-bought-elsewhere / ai-not-interested \u2192 done\n//   ai-attempt-N \u2192 how many calls have gone out\nconst MAX_ATTEMPTS = Number($env.FOLLOWUP_MAX_ATTEMPTS || 4);\nconst WINDOW_DAYS  = Number($env.FOLLOWUP_WINDOW_DAYS  || 6);\nconst CLOSED = ['ai-booked','ai-do-not-call','ai-bought-elsewhere','ai-not-interested'];\nconst out = [];\nfor (const item of $input.all()) {\n  const c = item.json;\n  const tags = (c.tags || []).map(t => String(t).toLowerCase());\n  let attempt = 1;\n  for (const t of tags) { const m = /^ai-attempt-(\\d+)$/.exec(t); if (m) attempt = Math.max(attempt, Number(m[1])); }\n  const ageDays = c.dateAdded ? (Date.now() - new Date(c.dateAdded)) / 86400000 : 0;\n  let skip = null;\n  if (tags.some(t => CLOSED.includes(t))) skip = 'closed';\n  else if (attempt >= MAX_ATTEMPTS)        skip = 'max_attempts';\n  else if (ageDays > WINDOW_DAYS)          skip = 'outside_window';\n  else if (!c.phone)                       skip = 'no_phone';\n  out.push({ json: { contactId: c.id, name: c.firstName || c.contactName || 'there', phone: c.phone,\n                     attempt, nextAttempt: attempt + 1, skip } });\n}\nreturn out;\n"
+        "jsCode": "\nconst cfg = $('Config').first().json;\nconst MAX_ATTEMPTS = Number(cfg.followupMaxAttempts || 4);\nconst WINDOW_DAYS  = Number(cfg.followupWindowDays  || 6);\nconst CLOSED = ['ai-booked', 'ai-do-not-call', 'ai-bought-elsewhere', 'ai-not-interested'];\nconst out = [];\nfor (const item of $input.all()) {\n  const c = item.json;\n  const tags = (c.tags || []).map(t => String(t).toLowerCase());\n  let attempt = 1;\n  for (const t of tags) { const m = /^ai-attempt-(\\d+)$/.exec(t); if (m) attempt = Math.max(attempt, Number(m[1])); }\n  const ageDays = c.dateAdded ? (Date.now() - new Date(c.dateAdded)) / 86400000 : 0;\n  let skip = null;\n  if (tags.some(t => CLOSED.includes(t))) skip = 'closed';\n  else if (attempt >= MAX_ATTEMPTS)        skip = 'max_attempts';\n  else if (ageDays > WINDOW_DAYS)          skip = 'outside_window';\n  else if (!c.phone)                       skip = 'no_phone';\n  out.push({ json: { contactId: c.id, name: c.firstName || c.contactName || 'there', phone: c.phone,\n                     attempt, nextAttempt: attempt + 1, skip } });\n}\nreturn out;\n"
       },
       "name": "Decide: call again, or stop?",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
+        880,
         300
       ]
     },
@@ -103,7 +266,7 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
@@ -126,56 +289,64 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        880,
+        1100,
         300
       ]
     },
     {
       "parameters": {
-        "amount": 20,
+        "amount": "={{ $('Config').item.json.paceSeconds }}",
         "unit": "seconds"
       },
-      "name": "Pace: 1 call / 20s",
+      "name": "Pace the calls",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1100,
+        1320,
         200
-      ]
+      ],
+      "webhookId": "e508aac9-07cc-5493-9bdf-833f0f73b6be"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.vapi.ai/call",
+        "url": "={{ $('Config').item.json.vapiBase }}/call",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  assistantId: $env.VAPI_ASSISTANT_ID_FOLLOWUP,\n  phoneNumberId: $env.VAPI_PHONE_NUMBER_ID,\n  customer: { number: $json.phone, name: $json.name },\n  assistantOverrides: { variableValues: { name: $json.name, attempt: $json.nextAttempt } },\n  metadata: { contactId: $json.contactId }\n}) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 2000
-          }
-        }
+        "jsonBody": "={{ JSON.stringify({\n  assistantId: $('Config').item.json.vapiAssistantIdFollowup,\n  phoneNumberId: $('Config').item.json.vapiPhoneNumberId,\n  customer: { number: $json.phone, name: $json.name },\n  assistantOverrides: { variableValues: { name: $json.name, attempt: $json.nextAttempt } },\n  metadata: { contactId: $json.contactId }\n}) }}"
       },
       "name": "Follow-up call (Vapi)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        1540,
         200
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "Vapi API key"
+          "name": "Vapi API key",
+          "id": "mpCredVapi000001"
         }
       }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://services.leadconnectorhq.com/contacts/{{ $('Eligible?').item.json.contactId }}/tags",
+        "url": "={{ $('Config').item.json.ghlBase }}/contacts/{{ $('Eligible?').item.json.contactId }}/tags",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -189,53 +360,95 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ tags: ['ai-attempt-' + $('Eligible?').item.json.nextAttempt] }) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 1500
-          }
-        }
+        "jsonBody": "={{ JSON.stringify({ tags: ['ai-attempt-' + $('Eligible?').item.json.nextAttempt] }) }}"
       },
       "name": "Tag ai-attempt-N",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1540,
+        1760,
         200
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "GoHighLevel API token"
+          "name": "GoHighLevel API token",
+          "id": "mpCredGhl0000002"
         }
       }
     },
     {
       "parameters": {
-        "fromEmail": "={{ $env.ALERT_FROM }}",
-        "toEmail": "={{ $env.OWNER_EMAIL }}",
-        "subject": "=Follow-up pass: {{ $('Eligible?').all(0).length }} called, {{ $('Eligible?').all(1).length }} skipped",
+        "numberInputs": 2
+      },
+      "name": "Merge called + skipped",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst called = $('Eligible?').all(0).map(i => i.json);\nconst skipped = $('Eligible?').all(1).map(i => i.json);\nconst text = [\n  'Called:', ...(called.map(c => `  ${c.name} ${c.phone} (attempt ${c.nextAttempt})`)), called.length ? '' : '  none', '',\n  'Skipped:', ...(skipped.map(c => `  ${c.name} (${c.skip})`)), skipped.length ? '' : '  none',\n].join('\\n');\nreturn [{ json: { subject: `Follow-up pass: ${called.length} called, ${skipped.length} skipped`, text } }];\n"
+      },
+      "name": "Summarize the pass",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        300
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Config').item.json.alertFrom }}",
+        "toEmail": "={{ $('Config').item.json.ownerEmail }}",
+        "subject": "={{ $json.subject }}",
         "emailFormat": "text",
-        "text": "=Called:\n{{ $('Eligible?').all(0).map(i => i.json.name + ' ' + i.json.phone + ' (attempt ' + i.json.nextAttempt + ')').join('\\n') || '\u2014' }}\n\nSkipped:\n{{ $('Eligible?').all(1).map(i => i.json.name + ' \u2014 ' + i.json.skip).join('\\n') || '\u2014' }}",
+        "text": "={{ $json.text }}",
         "options": {}
       },
       "name": "Daily summary email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1760,
+        2420,
         300
       ],
       "credentials": {
         "smtp": {
-          "name": "SMTP (Resend)"
+          "name": "SMTP (Resend)",
+          "id": "mpCredSmtp000004"
         }
-      },
-      "executeOnce": true
+      }
     }
   ],
   "connections": {
     "Weekdays 10:00 shop time": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
       "main": [
         [
           {
@@ -283,21 +496,21 @@
       "main": [
         [
           {
-            "node": "Pace: 1 call / 20s",
+            "node": "Pace the calls",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Daily summary email",
+            "node": "Merge called + skipped",
             "type": "main",
-            "index": 0
+            "index": 1
           }
         ]
       ]
     },
-    "Pace: 1 call / 20s": {
+    "Pace the calls": {
       "main": [
         [
           {
@@ -323,6 +536,28 @@
       "main": [
         [
           {
+            "node": "Merge called + skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge called + skipped": {
+      "main": [
+        [
+          {
+            "node": "Summarize the pass",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize the pass": {
+      "main": [
+        [
+          {
             "node": "Daily summary email",
             "type": "main",
             "index": 0
@@ -334,7 +569,7 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "error-alerting",
-    "timezone": "America/Los_Angeles"
+    "timezone": "America/Los_Angeles",
+    "errorWorkflow": "mpErrorAlert0005"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "n8n-workflows-demo",
+  "private": true,
+  "type": "module",
+  "description": "Runs the workflows in ./workflows against local mock APIs. See demo/demo.sh.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "python3 demo/build-workflows.py",
+    "demo": "bash demo/demo.sh"
+  },
+  "devDependencies": {
+    "n8n": "^2.37.9",
+    "smtp-server": "^3.13.0"
+  }
+}

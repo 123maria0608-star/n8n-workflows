@@ -1,6 +1,21 @@
 {
-  "name": "02 End-of-call write-back: Vapi \u2192 CRM tags + note \u2192 email",
+  "id": "mpEndOfCallWb002",
+  "name": "02 End-of-call write-back: Vapi report to CRM tags, note, email",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## End-of-call write-back\nVapi POSTs a report when a call ends. Turn its structured data into CRM tags the shop's own nurture automation branches on, plus a note a human can read in ten seconds.\n\nThe owner email is the backstop: it fires even when the CRM API fails (those two nodes are set to continue on error).",
+        "width": 560,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -14,6 +29,144 @@
       "position": [
         0,
         300
+      ],
+      "webhookId": "0cf4be45-7525-539b-b859-bef12d5c3ea4"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "vapiBase",
+              "name": "vapiBase",
+              "value": "https://api.vapi.ai",
+              "type": "string"
+            },
+            {
+              "id": "ghlBase",
+              "name": "ghlBase",
+              "value": "https://services.leadconnectorhq.com",
+              "type": "string"
+            },
+            {
+              "id": "twilioBase",
+              "name": "twilioBase",
+              "value": "https://api.twilio.com",
+              "type": "string"
+            },
+            {
+              "id": "logBase",
+              "name": "logBase",
+              "value": "https://your-log-endpoint.example.com",
+              "type": "string"
+            },
+            {
+              "id": "leadWebhookSecret",
+              "name": "leadWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiWebhookSecret",
+              "name": "vapiWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantId",
+              "name": "vapiAssistantId",
+              "value": "asst_speed_to_lead",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantIdFollowup",
+              "name": "vapiAssistantIdFollowup",
+              "value": "asst_follow_up",
+              "type": "string"
+            },
+            {
+              "id": "vapiPhoneNumberId",
+              "name": "vapiPhoneNumberId",
+              "value": "pn_xxx",
+              "type": "string"
+            },
+            {
+              "id": "ghlLocationId",
+              "name": "ghlLocationId",
+              "value": "loc_xxx",
+              "type": "string"
+            },
+            {
+              "id": "twilioAccountSid",
+              "name": "twilioAccountSid",
+              "value": "ACxxxxxxxx",
+              "type": "string"
+            },
+            {
+              "id": "businessName",
+              "name": "businessName",
+              "value": "Reflections Mobile Detailing",
+              "type": "string"
+            },
+            {
+              "id": "ownerEmail",
+              "name": "ownerEmail",
+              "value": "owner@example.com",
+              "type": "string"
+            },
+            {
+              "id": "oncallEmail",
+              "name": "oncallEmail",
+              "value": "maria@example.com",
+              "type": "string"
+            },
+            {
+              "id": "alertFrom",
+              "name": "alertFrom",
+              "value": "alerts@example.com",
+              "type": "string"
+            },
+            {
+              "id": "slackWebhookUrl",
+              "name": "slackWebhookUrl",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "followupMaxAttempts",
+              "name": "followupMaxAttempts",
+              "value": 4,
+              "type": "number"
+            },
+            {
+              "id": "followupWindowDays",
+              "name": "followupWindowDays",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "paceSeconds",
+              "name": "paceSeconds",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "n8nBase",
+              "name": "n8nBase",
+              "value": "http://localhost:5678",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
       ]
     },
     {
@@ -22,14 +175,14 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "secret",
               "leftValue": "={{ $json.headers['x-vapi-secret'] }}",
-              "rightValue": "={{ $env.VAPI_WEBHOOK_SECRET }}",
+              "rightValue": "={{ $('Config').item.json.vapiWebhookSecret }}",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -49,23 +202,23 @@
         },
         "options": {}
       },
-      "name": "Is end-of-call report?",
+      "name": "Is a real end-of-call report?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
+        440,
         300
       ]
     },
     {
       "parameters": {
-        "jsCode": "\n// The assistant returns structured data at the end of every call. Turn it\n// into (a) outcome tags the CRM's own automations branch on and (b) a note a\n// human can read in ten seconds.\nconst msg = $input.first().json.body.message;\nconst d = msg.analysis?.structuredData || {};\nconst call = msg.call || {};\nconst contactId = call.metadata?.contactId || null;\nconst endedReason = msg.endedReason || '';\n\nconst tags = ['ai-call-complete'];\nif (d.booked) tags.push('ai-booked');\nelse if (d.needs_owner_callback) tags.push('ai-needs-callback');\nelse if (d.reached === 'voicemail') tags.push('ai-voicemail');\nelse if (d.reached === 'wrong_number') tags.push('ai-wrong-number');\nelse if (d.reached === 'no_answer' || /no-answer|did-not-answer/i.test(endedReason)) tags.push('ai-no-answer');\nelse tags.push('ai-reached-no-booking');\nif (d.price_deferred) tags.push('needs-quote');\nif (d.in_service_area === false) tags.push('out-of-area');\nif (d.do_not_call) tags.push('ai-do-not-call');\n\nconst note = [\n  'AI speed-to-lead call',\n  d.reached ? `Reached: ${d.reached}` : null,\n  `Service: ${d.service || '\u2014'}`,\n  d.vehicle ? `Vehicle: ${d.vehicle}` : null,\n  d.quoted_price ? `Quoted: ${d.quoted_price}` : null,\n  d.price_deferred ? 'PRICE NOT QUOTED \u2014 owner needs to send the number' : null,\n  d.booked ? `BOOKED: ${d.appointment || 'time not captured'}` : 'Not booked',\n  d.objection ? `Hesitation: ${d.objection}` : null,\n  d.needs_owner_callback ? `CALL THEM BACK: ${d.callback_reason || ''}` : null,\n  endedReason ? `Ended: ${endedReason}` : null,\n  msg.summary ? `\\n${msg.summary}` : null,\n  msg.recordingUrl ? `Recording: ${msg.recordingUrl}` : null,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: {\n  contactId, tags, note,\n  hot: !!(d.booked || d.needs_owner_callback),\n  customer: call.customer?.number || '',\n  summary: msg.summary || '',\n  recordingUrl: msg.recordingUrl || '',\n}}];\n"
+        "jsCode": "\nconst msg = $input.first().json.body.message;\nconst d = msg.analysis?.structuredData || {};\nconst call = msg.call || {};\nconst contactId = call.metadata?.contactId || null;\nconst endedReason = msg.endedReason || '';\n\nconst tags = ['ai-call-complete'];\nif (d.booked) tags.push('ai-booked');\nelse if (d.needs_owner_callback) tags.push('ai-needs-callback');\nelse if (d.reached === 'voicemail') tags.push('ai-voicemail');\nelse if (d.reached === 'wrong_number') tags.push('ai-wrong-number');\nelse if (d.reached === 'no_answer' || /no-answer|did-not-answer/i.test(endedReason)) tags.push('ai-no-answer');\nelse tags.push('ai-reached-no-booking');\nif (d.price_deferred) tags.push('needs-quote');\nif (d.in_service_area === false) tags.push('out-of-area');\nif (d.do_not_call) tags.push('ai-do-not-call');\n\nconst note = [\n  'AI speed-to-lead call',\n  d.reached ? `Reached: ${d.reached}` : null,\n  `Service: ${d.service || '—'}`,\n  d.vehicle ? `Vehicle: ${d.vehicle}` : null,\n  d.quoted_price ? `Quoted: ${d.quoted_price}` : null,\n  d.price_deferred ? 'PRICE NOT QUOTED. Owner needs to send the number.' : null,\n  d.booked ? `BOOKED: ${d.appointment || 'time not captured'}` : 'Not booked',\n  d.objection ? `Hesitation: ${d.objection}` : null,\n  d.needs_owner_callback ? `CALL THEM BACK: ${d.callback_reason || ''}` : null,\n  endedReason ? `Ended: ${endedReason}` : null,\n  msg.summary ? `\\n${msg.summary}` : null,\n  msg.recordingUrl ? `Recording: ${msg.recordingUrl}` : null,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: {\n  contactId, tags, note,\n  hot: !!(d.booked || d.needs_owner_callback),\n  customer: call.customer?.number || '',\n  outcome: tags[1] || 'unknown',\n}}];\n"
       },
       "name": "Extract outcome + tags",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        440,
+        660,
         200
       ]
     },
@@ -75,7 +228,7 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
@@ -98,14 +251,20 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
+        880,
         200
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://services.leadconnectorhq.com/contacts/{{ $json.contactId }}/tags",
+        "url": "={{ $('Config').item.json.ghlBase }}/contacts/{{ $json.contactId }}/tags",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -119,54 +278,9 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ tags: $json.tags }) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 1500
-          }
-        }
+        "jsonBody": "={{ JSON.stringify({ tags: $json.tags }) }}"
       },
       "name": "Add outcome tags",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        880,
-        100
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "name": "GoHighLevel API token"
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://services.leadconnectorhq.com/contacts/{{ $('Extract outcome + tags').item.json.contactId }}/notes",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Version",
-              "value": "2021-07-28"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ body: $('Extract outcome + tags').item.json.note }) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 1500
-          }
-        }
-      },
-      "name": "Add call note",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -175,16 +289,57 @@
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "GoHighLevel API token"
+          "name": "GoHighLevel API token",
+          "id": "mpCredGhl0000002"
         }
       },
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "fromEmail": "={{ $env.ALERT_FROM }}",
-        "toEmail": "={{ $env.OWNER_EMAIL }}",
-        "subject": "={{ ($('Extract outcome + tags').item.json.hot ? '\ud83d\udd25 ' : '') + 'AI call: ' + $('Extract outcome + tags').item.json.tags.slice(1,2).join('') + ' \u2014 ' + $('Extract outcome + tags').item.json.customer }}",
+        "method": "POST",
+        "url": "={{ $('Config').item.json.ghlBase }}/contacts/{{ $('Extract outcome + tags').item.json.contactId }}/notes",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $('Extract outcome + tags').item.json.note }) }}"
+      },
+      "name": "Add call note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "GoHighLevel API token",
+          "id": "mpCredGhl0000002"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Config').item.json.alertFrom }}",
+        "toEmail": "={{ $('Config').item.json.ownerEmail }}",
+        "subject": "={{ ($('Extract outcome + tags').item.json.hot ? 'HOT ' : '') + 'AI call ' + $('Extract outcome + tags').item.json.outcome + ' ' + $('Extract outcome + tags').item.json.customer }}",
         "emailFormat": "text",
         "text": "={{ $('Extract outcome + tags').item.json.note }}",
         "options": {}
@@ -193,12 +348,13 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1320,
+        1540,
         200
       ],
       "credentials": {
         "smtp": {
-          "name": "SMTP (Resend)"
+          "name": "SMTP (Resend)",
+          "id": "mpCredSmtp000004"
         }
       }
     }
@@ -208,14 +364,25 @@
       "main": [
         [
           {
-            "node": "Is end-of-call report?",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Is end-of-call report?": {
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Is a real end-of-call report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a real end-of-call report?": {
       "main": [
         [
           {
@@ -282,6 +449,6 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "error-alerting"
+    "errorWorkflow": "mpErrorAlert0005"
   }
 }

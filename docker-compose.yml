@@ -1,0 +1,65 @@
+# Self-hosted n8n the way a company would run it: n8n + Postgres, with the
+# option of queue mode (Redis + workers) for scale. Not needed for the laptop
+# demo (demo/demo.sh runs n8n from npm), but this is the production shape.
+#
+#   docker compose up -d
+#   docker compose --profile queue up -d --scale n8n-worker=2   # queue mode
+#
+# Then import the same files:  docker compose exec n8n n8n import:workflow --separate --input=/workflows
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17          # Postgres 17 with the pgvector extension
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: n8n
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./demo/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 5s
+      retries: 10
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    ports: ["5678:5678"]
+    environment: &n8n-env
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set a long random value}   # encrypts credentials at rest
+      N8N_HOST: ${N8N_HOST:-localhost}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}                    # what outside services are told to POST to
+      GENERIC_TIMEZONE: America/Los_Angeles
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      # queue mode (only used with --profile queue)
+      EXECUTIONS_MODE: ${EXECUTIONS_MODE:-regular}
+      QUEUE_BULL_REDIS_HOST: redis
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # ---- queue mode: one main above, N workers below, Redis between them ----
+  redis:
+    image: redis:7-alpine
+    profiles: ["queue"]
+
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n:latest
+    command: worker
+    profiles: ["queue"]
+    environment:
+      <<: *n8n-env
+      EXECUTIONS_MODE: queue
+    depends_on: [redis, postgres]
+
+volumes:
+  pgdata:
+  n8ndata:

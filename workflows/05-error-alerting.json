@@ -1,6 +1,21 @@
 {
+  "id": "mpErrorAlert0005",
   "name": "05 Error alerting (shared error workflow)",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Error workflow\nSet as the Error Workflow on the other workflows (workflow Settings). n8n runs it whenever one of them fails, with the failing workflow, node, and error message as input.\n\nSame (workflow, node) failure alerts once an hour, not once per execution. A flapping API should not fill the inbox.",
+        "width": 560,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
     {
       "parameters": {},
       "name": "Error Trigger",
@@ -13,11 +28,34 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst e = $input.first().json;\nconst wf = e.workflow || {}, ex = e.execution || {};\nconst err = ex.error || {};\nconst last = ex.lastNodeExecuted || '\u2014';\nreturn [{ json: {\n  subject: `[n8n] ${wf.name || 'workflow'} failed at \"${last}\"`,\n  text: [\n    `Workflow: ${wf.name} (${wf.id})`,\n    `Execution: ${ex.id}  mode=${ex.mode}  retry=${ex.retryOf || 'no'}`,\n    `Node: ${last}`,\n    `Error: ${err.message || JSON.stringify(err).slice(0, 500)}`,\n    ex.url ? `Open: ${ex.url}` : null,\n  ].filter(Boolean).join('\\n'),\n  fingerprint: `${wf.id}:${last}`,\n}}];\n"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "alertFrom",
+              "name": "alertFrom",
+              "value": "alerts@example.com",
+              "type": "string"
+            },
+            {
+              "id": "oncallEmail",
+              "name": "oncallEmail",
+              "value": "maria@example.com",
+              "type": "string"
+            },
+            {
+              "id": "slackWebhookUrl",
+              "name": "slackWebhookUrl",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
       },
-      "name": "Build alert",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         220,
         300
@@ -25,9 +63,9 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// One email per distinct (workflow, node) per hour. A flapping API should\n// not fill the inbox; the first alert is the useful one.\nconst a = $input.first().json;\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst now = Date.now();\nfor (const k of Object.keys(store.seen)) if (now - store.seen[k] > 3600000) delete store.seen[k];\nconst suppressed = !!store.seen[a.fingerprint];\nif (!suppressed) store.seen[a.fingerprint] = now;\nreturn [{ json: { ...a, suppressed } }];\n"
+        "jsCode": "\nconst e = $input.first().json;\nconst wf = e.workflow || {}, ex = e.execution || {};\nconst err = ex.error || {};\nconst last = ex.lastNodeExecuted || '—';\nreturn [{ json: {\n  subject: `[n8n] ${wf.name || 'workflow'} failed at \"${last}\"`,\n  text: [\n    `Workflow: ${wf.name} (${wf.id})`,\n    `Execution: ${ex.id}  mode=${ex.mode}  retry=${ex.retryOf || 'no'}`,\n    `Node: ${last}`,\n    `Error: ${err.message || JSON.stringify(err).slice(0, 500)}`,\n    ex.url ? `Open: ${ex.url}` : null,\n  ].filter(Boolean).join('\\n'),\n  fingerprint: `${wf.id}:${last}`,\n  slackWebhookUrl: $('Config').first().json.slackWebhookUrl || '',\n}}];\n"
       },
-      "name": "Throttle: same failure \u2264 1/hr",
+      "name": "Build alert",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -37,18 +75,30 @@
     },
     {
       "parameters": {
+        "jsCode": "\nconst a = $input.first().json;\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst now = Date.now();\nfor (const k of Object.keys(store.seen)) if (now - store.seen[k] > 3600000) delete store.seen[k];\nconst suppressed = !!store.seen[a.fingerprint];\nif (!suppressed) store.seen[a.fingerprint] = now;\nreturn [{ json: { ...a, suppressed } }];\n"
+      },
+      "name": "Throttle: same failure once an hour",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "s",
               "leftValue": "={{ $json.suppressed }}",
-              "rightValue": false,
+              "rightValue": "",
               "operator": {
                 "type": "boolean",
                 "operation": "false",
@@ -64,14 +114,14 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
+        880,
         300
       ]
     },
     {
       "parameters": {
-        "fromEmail": "={{ $env.ALERT_FROM }}",
-        "toEmail": "={{ $env.ONCALL_EMAIL }}",
+        "fromEmail": "={{ $('Config').item.json.alertFrom }}",
+        "toEmail": "={{ $('Config').item.json.oncallEmail }}",
         "subject": "={{ $json.subject }}",
         "emailFormat": "text",
         "text": "={{ $json.text }}",
@@ -81,36 +131,81 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        880,
+        1100,
         200
       ],
       "credentials": {
         "smtp": {
-          "name": "SMTP (Resend)"
+          "name": "SMTP (Resend)",
+          "id": "mpCredSmtp000004"
         }
       }
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "slack",
+              "leftValue": "={{ $json.slackWebhookUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Slack configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        440
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "url": "={{ $json.slackWebhookUrl }}",
+        "options": {},
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ text: $json.subject + '\\n' + $json.text }) }}",
-        "options": {}
+        "jsonBody": "={{ JSON.stringify({ text: $json.subject + '\\n' + $json.text }) }}"
       },
       "name": "Post to Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
-        420
+        1320,
+        440
       ],
       "onError": "continueRegularOutput"
     }
   ],
   "connections": {
     "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
       "main": [
         [
           {
@@ -125,14 +220,14 @@
       "main": [
         [
           {
-            "node": "Throttle: same failure \u2264 1/hr",
+            "node": "Throttle: same failure once an hour",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Throttle: same failure \u2264 1/hr": {
+    "Throttle: same failure once an hour": {
       "main": [
         [
           {
@@ -151,6 +246,18 @@
             "type": "main",
             "index": 0
           },
+          {
+            "node": "Slack configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Slack configured?": {
+      "main": [
+        [
           {
             "node": "Post to Slack",
             "type": "main",

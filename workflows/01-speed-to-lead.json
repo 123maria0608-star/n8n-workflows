@@ -1,6 +1,21 @@
 {
-  "name": "01 Speed-to-lead: webhook \u2192 AI call \u2192 CRM tag",
+  "id": "mpSpeedToLead001",
+  "name": "01 Speed-to-lead: webhook, AI call, CRM tag",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Speed-to-lead\nA new lead lands (CRM workflow or web form) → verify it really came from us → normalize → guards → call them within seconds → tag the CRM contact.\n\nThe webhook answers 200 for skipped leads too. A non-2xx would make the CRM retry and re-send the same lead.",
+        "width": 560,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -14,6 +29,144 @@
       "position": [
         0,
         300
+      ],
+      "webhookId": "202c9bfa-de4d-5a4f-a695-6872b3dfc7ca"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "vapiBase",
+              "name": "vapiBase",
+              "value": "https://api.vapi.ai",
+              "type": "string"
+            },
+            {
+              "id": "ghlBase",
+              "name": "ghlBase",
+              "value": "https://services.leadconnectorhq.com",
+              "type": "string"
+            },
+            {
+              "id": "twilioBase",
+              "name": "twilioBase",
+              "value": "https://api.twilio.com",
+              "type": "string"
+            },
+            {
+              "id": "logBase",
+              "name": "logBase",
+              "value": "https://your-log-endpoint.example.com",
+              "type": "string"
+            },
+            {
+              "id": "leadWebhookSecret",
+              "name": "leadWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiWebhookSecret",
+              "name": "vapiWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantId",
+              "name": "vapiAssistantId",
+              "value": "asst_speed_to_lead",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantIdFollowup",
+              "name": "vapiAssistantIdFollowup",
+              "value": "asst_follow_up",
+              "type": "string"
+            },
+            {
+              "id": "vapiPhoneNumberId",
+              "name": "vapiPhoneNumberId",
+              "value": "pn_xxx",
+              "type": "string"
+            },
+            {
+              "id": "ghlLocationId",
+              "name": "ghlLocationId",
+              "value": "loc_xxx",
+              "type": "string"
+            },
+            {
+              "id": "twilioAccountSid",
+              "name": "twilioAccountSid",
+              "value": "ACxxxxxxxx",
+              "type": "string"
+            },
+            {
+              "id": "businessName",
+              "name": "businessName",
+              "value": "Reflections Mobile Detailing",
+              "type": "string"
+            },
+            {
+              "id": "ownerEmail",
+              "name": "ownerEmail",
+              "value": "owner@example.com",
+              "type": "string"
+            },
+            {
+              "id": "oncallEmail",
+              "name": "oncallEmail",
+              "value": "maria@example.com",
+              "type": "string"
+            },
+            {
+              "id": "alertFrom",
+              "name": "alertFrom",
+              "value": "alerts@example.com",
+              "type": "string"
+            },
+            {
+              "id": "slackWebhookUrl",
+              "name": "slackWebhookUrl",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "followupMaxAttempts",
+              "name": "followupMaxAttempts",
+              "value": 4,
+              "type": "number"
+            },
+            {
+              "id": "followupWindowDays",
+              "name": "followupWindowDays",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "paceSeconds",
+              "name": "paceSeconds",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "n8nBase",
+              "name": "n8nBase",
+              "value": "http://localhost:5678",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
       ]
     },
     {
@@ -22,14 +175,14 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "secret",
               "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
-              "rightValue": "={{ $env.LEAD_WEBHOOK_SECRET }}",
+              "rightValue": "={{ $('Config').item.json.leadWebhookSecret }}",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -44,7 +197,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
+        440,
         300
       ]
     },
@@ -60,27 +213,15 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        440,
-        460
+        660,
+        480
       ]
     },
     {
       "parameters": {
-        "jsCode": "\n// Two callers, one path: a CRM workflow webhook (GoHighLevel shape) and a\n// plain web form. Both end up as the same lead object.\nconst b = $input.first().json.body || {};\nconst c = b.customData || b.custom_data || {};\nconst first = b.first_name || b.firstName || b.name?.split(' ')[0] || '';\nconst last  = b.last_name  || b.lastName  || (b.name ? b.name.split(' ').slice(1).join(' ') : '');\nconst raw   = String(b.phone || c.phone || '').replace(/[^\\d+]/g, '');\nconst phone = raw.startsWith('+') ? raw : (raw.length === 10 ? '+1' + raw : raw.length === 11 && raw.startsWith('1') ? '+' + raw : '');\nreturn [{ json: {\n  contactId: b.contact_id || b.id || null,\n  name: `${first} ${last}`.trim() || 'there',\n  phone,\n  service: b.service || c.service || '',\n  vehicle: b.vehicle || c.vehicle || '',\n  source:  b.source  || c.source  || (b.customData ? 'ghl' : 'web-form'),\n  receivedAt: new Date().toISOString(),\n}}];\n"
+        "jsCode": "\n// Two callers, one path: a CRM workflow webhook (GoHighLevel shape) and a\n// plain web form. Both end up as the same lead object.\nconst b = $input.first().json.body || {};\nconst c = b.customData || b.custom_data || {};\nconst first = b.first_name || b.firstName || (b.name || '').split(' ')[0] || '';\nconst last  = b.last_name  || b.lastName  || (b.name ? b.name.split(' ').slice(1).join(' ') : '');\nconst raw   = String(b.phone || c.phone || '').replace(/[^\\d+]/g, '');\nconst phone = raw.startsWith('+') ? raw\n            : raw.length === 10 ? '+1' + raw\n            : raw.length === 11 && raw.startsWith('1') ? '+' + raw : '';\nreturn [{ json: {\n  contactId: b.contact_id || b.id || null,\n  name: `${first} ${last}`.trim() || 'there',\n  phone,\n  service: b.service || c.service || '',\n  vehicle: b.vehicle || c.vehicle || '',\n  source:  b.source  || c.source  || (b.customData ? 'ghl' : 'web-form'),\n  receivedAt: new Date().toISOString(),\n}}];\n"
       },
       "name": "Normalize lead",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        440,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "\n// Never call a number twice in the same window, never call a DNC number,\n// never call a malformed number. Static data is n8n's built-in per-workflow\n// store; it survives restarts and needs no database.\nconst lead = $input.first().json;\nconst store = $getWorkflowStaticData('global');\nstore.recent = store.recent || {};\nstore.dnc    = store.dnc    || [];\nconst now = Date.now(), WINDOW = 6 * 60 * 60 * 1000;\nfor (const k of Object.keys(store.recent)) if (now - store.recent[k] > WINDOW) delete store.recent[k];\n\nlet reason = null;\nif (!/^\\+1\\d{10}$/.test(lead.phone))        reason = 'invalid_number';\nelse if (store.dnc.includes(lead.phone))     reason = 'do_not_call';\nelse if (store.recent[lead.phone])           reason = 'duplicate_within_6h';\nif (!reason) store.recent[lead.phone] = now;\nreturn [{ json: { ...lead, ok: !reason, skipReason: reason } }];\n"
-      },
-      "name": "Guards: valid number, DNC, dedupe",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -90,18 +231,30 @@
     },
     {
       "parameters": {
+        "jsCode": "\n// Never call a malformed number, a do-not-call number, or the same number\n// twice inside the window. Workflow static data is n8n's built-in per-workflow\n// store: it survives restarts and needs no database.\nconst lead = $input.first().json;\nconst store = $getWorkflowStaticData('global');\nstore.recent = store.recent || {};\nstore.dnc    = store.dnc    || [];\nconst now = Date.now(), WINDOW = 6 * 60 * 60 * 1000;\nfor (const k of Object.keys(store.recent)) if (now - store.recent[k] > WINDOW) delete store.recent[k];\n\nlet reason = null;\nif (!/^\\+1\\d{10}$/.test(lead.phone))     reason = 'invalid_number';\nelse if (store.dnc.includes(lead.phone))  reason = 'do_not_call';\nelse if (store.recent[lead.phone])        reason = 'duplicate_within_6h';\nif (!reason) store.recent[lead.phone] = now;\nreturn [{ json: { ...lead, ok: !reason, skipReason: reason } }];\n"
+      },
+      "name": "Guards: valid number, DNC, dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "ok",
               "leftValue": "={{ $json.ok }}",
-              "rightValue": true,
+              "rightValue": "",
               "operator": {
                 "type": "boolean",
                 "operation": "true",
@@ -117,43 +270,50 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        880,
+        1100,
         200
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.vapi.ai/call",
+        "url": "={{ $('Config').item.json.vapiBase }}/call",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  assistantId: $env.VAPI_ASSISTANT_ID,\n  phoneNumberId: $env.VAPI_PHONE_NUMBER_ID,\n  customer: { number: $json.phone, name: $json.name },\n  assistantOverrides: { variableValues: { name: $json.name, service: $json.service, vehicle: $json.vehicle } },\n  metadata: { contactId: $json.contactId, source: $json.source }\n}) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 2000
-          }
-        }
+        "jsonBody": "={{ JSON.stringify({\n  assistantId: $('Config').item.json.vapiAssistantId,\n  phoneNumberId: $('Config').item.json.vapiPhoneNumberId,\n  customer: { number: $json.phone, name: $json.name },\n  assistantOverrides: { variableValues: { name: $json.name, service: $json.service, vehicle: $json.vehicle } },\n  metadata: { contactId: $json.contactId, source: $json.source }\n}) }}"
       },
       "name": "Place AI outbound call (Vapi)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1100,
+        1320,
         100
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "Vapi API key"
+          "name": "Vapi API key",
+          "id": "mpCredVapi000001"
         }
       }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://services.leadconnectorhq.com/contacts/{{ $('Normalize lead').item.json.contactId }}/tags",
+        "url": "={{ $('Config').item.json.ghlBase }}/contacts/{{ $('Normalize lead').item.json.contactId }}/tags",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -167,38 +327,33 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ tags: ['ai-called','ai-attempt-1'] }) }}",
-        "options": {
-          "retry": {
-            "maxTries": 3,
-            "waitBetweenTries": 1500
-          }
-        }
+        "jsonBody": "={{ JSON.stringify({ tags: ['ai-called', 'ai-attempt-1'] }) }}"
       },
       "name": "Tag contact: ai-attempt-1",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        1540,
         100
       ],
       "credentials": {
         "httpHeaderAuth": {
-          "name": "GoHighLevel API token"
+          "name": "GoHighLevel API token",
+          "id": "mpCredGhl0000002"
         }
       }
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true, called: $('Normalize lead').item.json.phone } }}",
+        "responseBody": "={{ { ok: true, called: $('Normalize lead').item.json.phone, callId: $('Place AI outbound call (Vapi)').item.json.id } }}",
         "options": {}
       },
       "name": "Respond 200 (called)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1540,
+        1760,
         100
       ]
     },
@@ -212,13 +367,24 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1100,
+        1320,
         340
       ]
     }
   ],
   "connections": {
     "New lead webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
       "main": [
         [
           {
@@ -313,6 +479,6 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "error-alerting"
+    "errorWorkflow": "mpErrorAlert0005"
   }
 }

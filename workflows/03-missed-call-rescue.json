@@ -1,6 +1,21 @@
 {
-  "name": "03 Missed-call rescue: Twilio status \u2192 SMS + email + log",
+  "id": "mpMissedCall0003",
+  "name": "03 Missed-call rescue: Twilio status to SMS, email, log",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Missed-call rescue\nA customer calls the shop and nobody answers (no-answer, busy, or failed). Twilio POSTs a status callback after every call; on a missed inbound call, text the caller back once (never twice in a day, never if they texted STOP), email the owner, and log it.\n\nThe second webhook records STOP/START. A plain Twilio number does not enforce opt-outs for you; a Messaging Service does.",
+        "width": 560,
+        "height": 190
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -14,6 +29,144 @@
       "position": [
         0,
         300
+      ],
+      "webhookId": "3802b0ef-ed0e-5344-bc34-df5bcbe61dc5"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "vapiBase",
+              "name": "vapiBase",
+              "value": "https://api.vapi.ai",
+              "type": "string"
+            },
+            {
+              "id": "ghlBase",
+              "name": "ghlBase",
+              "value": "https://services.leadconnectorhq.com",
+              "type": "string"
+            },
+            {
+              "id": "twilioBase",
+              "name": "twilioBase",
+              "value": "https://api.twilio.com",
+              "type": "string"
+            },
+            {
+              "id": "logBase",
+              "name": "logBase",
+              "value": "https://your-log-endpoint.example.com",
+              "type": "string"
+            },
+            {
+              "id": "leadWebhookSecret",
+              "name": "leadWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiWebhookSecret",
+              "name": "vapiWebhookSecret",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantId",
+              "name": "vapiAssistantId",
+              "value": "asst_speed_to_lead",
+              "type": "string"
+            },
+            {
+              "id": "vapiAssistantIdFollowup",
+              "name": "vapiAssistantIdFollowup",
+              "value": "asst_follow_up",
+              "type": "string"
+            },
+            {
+              "id": "vapiPhoneNumberId",
+              "name": "vapiPhoneNumberId",
+              "value": "pn_xxx",
+              "type": "string"
+            },
+            {
+              "id": "ghlLocationId",
+              "name": "ghlLocationId",
+              "value": "loc_xxx",
+              "type": "string"
+            },
+            {
+              "id": "twilioAccountSid",
+              "name": "twilioAccountSid",
+              "value": "ACxxxxxxxx",
+              "type": "string"
+            },
+            {
+              "id": "businessName",
+              "name": "businessName",
+              "value": "Reflections Mobile Detailing",
+              "type": "string"
+            },
+            {
+              "id": "ownerEmail",
+              "name": "ownerEmail",
+              "value": "owner@example.com",
+              "type": "string"
+            },
+            {
+              "id": "oncallEmail",
+              "name": "oncallEmail",
+              "value": "maria@example.com",
+              "type": "string"
+            },
+            {
+              "id": "alertFrom",
+              "name": "alertFrom",
+              "value": "alerts@example.com",
+              "type": "string"
+            },
+            {
+              "id": "slackWebhookUrl",
+              "name": "slackWebhookUrl",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "followupMaxAttempts",
+              "name": "followupMaxAttempts",
+              "value": 4,
+              "type": "number"
+            },
+            {
+              "id": "followupWindowDays",
+              "name": "followupWindowDays",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "paceSeconds",
+              "name": "paceSeconds",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "n8nBase",
+              "name": "n8nBase",
+              "value": "http://localhost:5678",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
       ]
     },
     {
@@ -22,14 +175,14 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "status",
               "leftValue": "={{ ['no-answer','busy','failed'].includes($json.body.DialCallStatus || $json.body.CallStatus) }}",
-              "rightValue": true,
+              "rightValue": "",
               "operator": {
                 "type": "boolean",
                 "operation": "true",
@@ -50,23 +203,23 @@
         },
         "options": {}
       },
-      "name": "Missed? (no-answer / busy / failed)",
+      "name": "Missed inbound call?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        220,
+        440,
         300
       ]
     },
     {
       "parameters": {
-        "jsCode": "\nconst b = $input.first().json.body;\nconst from = b.From, to = b.To;\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nstore.texted = store.texted || {};\nconst now = Date.now(), DAY = 24*60*60*1000;\n// One rescue text per caller per day. Nobody wants three of these.\nconst already = store.texted[from] && now - store.texted[from] < DAY;\nconst optedOut = store.optOut.includes(from);\nif (!already && !optedOut) store.texted[from] = now;\nreturn [{ json: {\n  from, to, callSid: b.CallSid, status: b.DialCallStatus || b.CallStatus,\n  send: !already && !optedOut,\n  reason: optedOut ? 'opted_out' : already ? 'already_texted_today' : null,\n  at: new Date().toISOString(),\n}}];\n"
+        "jsCode": "\nconst b = $input.first().json.body;\nconst from = b.From, to = b.To;\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nstore.texted = store.texted || {};\nconst now = Date.now(), DAY = 24 * 60 * 60 * 1000;\nconst already  = store.texted[from] && now - store.texted[from] < DAY;\nconst optedOut = store.optOut.includes(from);\nif (!already && !optedOut) store.texted[from] = now;\nreturn [{ json: {\n  from, to, callSid: b.CallSid, status: b.DialCallStatus || b.CallStatus,\n  send: !already && !optedOut,\n  reason: optedOut ? 'opted_out' : already ? 'already_texted_today' : null,\n  at: new Date().toISOString(),\n}}];\n"
       },
-      "name": "Shape + opt-out check",
+      "name": "Shape + opt-out + once-a-day",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        440,
+        660,
         200
       ]
     },
@@ -76,14 +229,14 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "send",
               "leftValue": "={{ $json.send }}",
-              "rightValue": true,
+              "rightValue": "",
               "operator": {
                 "type": "boolean",
                 "operation": "true",
@@ -99,86 +252,95 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
+        880,
         200
       ]
     },
     {
       "parameters": {
-        "from": "={{ $json.to }}",
-        "to": "={{ $json.from }}",
-        "message": "={{ $env.BUSINESS_NAME }} here \u2014 sorry we missed you. Reply with what you need (service + vehicle/address) and we'll get you a quote or a time. Reply STOP to opt out.",
-        "options": {}
+        "method": "POST",
+        "url": "={{ $('Config').item.json.twilioBase }}/2010-04-01/Accounts/{{ $('Config').item.json.twilioAccountSid }}/Messages.json",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "From",
+              "value": "={{ $json.to }}"
+            },
+            {
+              "name": "To",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "name": "Body",
+              "value": "={{ $('Config').item.json.businessName }} here, sorry we missed you. Reply with what you need (service and vehicle or address) and we'll get you a quote or a time. Reply STOP to opt out."
+            }
+          ]
+        }
       },
-      "name": "SMS the caller back",
-      "type": "n8n-nodes-base.twilio",
-      "typeVersion": 1,
+      "name": "SMS the caller back (Twilio)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        880,
+        1100,
         100
       ],
       "credentials": {
-        "twilioApi": {
-          "name": "Twilio"
+        "httpBasicAuth": {
+          "name": "Twilio (basic auth)",
+          "id": "mpCredTwilio0003"
         }
       },
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "fromEmail": "={{ $env.ALERT_FROM }}",
-        "toEmail": "={{ $env.OWNER_EMAIL }}",
-        "subject": "=Missed call from {{ $('Shape + opt-out check').item.json.from }} ({{ $('Shape + opt-out check').item.json.status }})",
+        "fromEmail": "={{ $('Config').item.json.alertFrom }}",
+        "toEmail": "={{ $('Config').item.json.ownerEmail }}",
+        "subject": "=Missed call from {{ $('Shape + opt-out + once-a-day').item.json.from }} ({{ $('Shape + opt-out + once-a-day').item.json.status }})",
         "emailFormat": "text",
-        "text": "=Missed call at {{ $('Shape + opt-out check').item.json.at }}\nFrom: {{ $('Shape + opt-out check').item.json.from }}\nRescue text sent: {{ $('Shape + opt-out check').item.json.send ? 'yes' : 'no (' + $('Shape + opt-out check').item.json.reason + ')' }}\nCall SID: {{ $('Shape + opt-out check').item.json.callSid }}",
+        "text": "=Missed call at {{ $('Shape + opt-out + once-a-day').item.json.at }}\nFrom: {{ $('Shape + opt-out + once-a-day').item.json.from }}\nRescue text sent: {{ $('Shape + opt-out + once-a-day').item.json.send ? 'yes' : 'no (' + $('Shape + opt-out + once-a-day').item.json.reason + ')' }}\nCall SID: {{ $('Shape + opt-out + once-a-day').item.json.callSid }}",
         "options": {}
       },
       "name": "Email owner the missed call",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1100,
+        1320,
         200
       ],
       "credentials": {
         "smtp": {
-          "name": "SMTP (Resend)"
+          "name": "SMTP (Resend)",
+          "id": "mpCredSmtp000004"
         }
       }
     },
     {
       "parameters": {
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "={{ $env.CALL_LOG_SHEET_ID }}"
-        },
-        "sheetName": {
-          "__rl": true,
-          "mode": "name",
-          "value": "missed-calls"
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
+        "method": "POST",
+        "url": "={{ $('Config').item.json.logBase }}/missed-calls",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Shape + opt-out + once-a-day').item.json) }}"
       },
-      "name": "Log to Google Sheet",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "name": "Append to call log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        1320,
+        1540,
         200
       ],
-      "credentials": {
-        "googleSheetsOAuth2Api": {
-          "name": "Google Sheets"
-        }
-      },
       "onError": "continueRegularOutput"
     },
     {
@@ -188,24 +350,25 @@
         "responseMode": "onReceived",
         "options": {}
       },
-      "name": "Twilio inbound SMS (STOP handling)",
+      "name": "Twilio inbound SMS webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
         0,
-        600
-      ]
+        640
+      ],
+      "webhookId": "f4040d63-e17e-5ead-8bba-f74aa8d465f1"
     },
     {
       "parameters": {
-        "jsCode": "\n// A plain Twilio number does not enforce STOP for you the way a Messaging\n// Service does, so honour it here before anything else can text this person.\nconst b = $input.first().json.body;\nconst body = String(b.Body || '').trim().toLowerCase();\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nlet action = 'none';\nif (/^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(body)) { if (!store.optOut.includes(b.From)) store.optOut.push(b.From); action = 'opt_out'; }\nif (/^(start|unstop|yes)$/.test(body)) { store.optOut = store.optOut.filter(n => n !== b.From); action = 'opt_in'; }\nreturn [{ json: { from: b.From, body: b.Body, action } }];\n"
+        "jsCode": "\nconst b = $input.first().json.body;\nconst body = String(b.Body || '').trim().toLowerCase();\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nlet action = 'none';\nif (/^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(body)) { if (!store.optOut.includes(b.From)) store.optOut.push(b.From); action = 'opt_out'; }\nif (/^(start|unstop|yes)$/.test(body)) { store.optOut = store.optOut.filter(n => n !== b.From); action = 'opt_in'; }\nreturn [{ json: { from: b.From, body: b.Body, action, optOutList: store.optOut } }];\n"
       },
       "name": "Record STOP / START",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         220,
-        600
+        640
       ]
     }
   ],
@@ -214,18 +377,29 @@
       "main": [
         [
           {
-            "node": "Missed? (no-answer / busy / failed)",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Missed? (no-answer / busy / failed)": {
+    "Config": {
       "main": [
         [
           {
-            "node": "Shape + opt-out check",
+            "node": "Missed inbound call?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missed inbound call?": {
+      "main": [
+        [
+          {
+            "node": "Shape + opt-out + once-a-day",
             "type": "main",
             "index": 0
           }
@@ -233,7 +407,7 @@
         []
       ]
     },
-    "Shape + opt-out check": {
+    "Shape + opt-out + once-a-day": {
       "main": [
         [
           {
@@ -248,7 +422,7 @@
       "main": [
         [
           {
-            "node": "SMS the caller back",
+            "node": "SMS the caller back (Twilio)",
             "type": "main",
             "index": 0
           }
@@ -262,7 +436,7 @@
         ]
       ]
     },
-    "SMS the caller back": {
+    "SMS the caller back (Twilio)": {
       "main": [
         [
           {
@@ -277,14 +451,14 @@
       "main": [
         [
           {
-            "node": "Log to Google Sheet",
+            "node": "Append to call log",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Twilio inbound SMS (STOP handling)": {
+    "Twilio inbound SMS webhook": {
       "main": [
         [
           {
@@ -299,6 +473,6 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "error-alerting"
+    "errorWorkflow": "mpErrorAlert0005"
   }
 }

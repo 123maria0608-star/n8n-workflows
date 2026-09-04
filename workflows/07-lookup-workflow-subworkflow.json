@@ -1,0 +1,118 @@
+{
+  "id": "mpLookupWf000007",
+  "name": "07 Lookup: nearest workflow by cosine similarity (sub-workflow)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Find the closest workflow (sub-workflow)\nCalled by workflow 06 with `{ question }`. Embeds the question the same way 08 embedded the descriptions, asks Postgres for the nearest vectors, and returns the best match with its cosine similarity (1 = identical meaning, 0 = unrelated).\n\n`embedding <=> $1` is pgvector's cosine distance; similarity = 1 - distance.",
+        "width": 600,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "Called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst DIM = 256;\nconst STOP = new Set('a an the and or of to in on for with is are be by at as it this that from into when what how do does which who does'.split(' '));\nfunction stem(w) {           // crude suffix stripping so calls/called/calling all land on \"call\"\n  return w.replace(/(ings?|ed|es|s)$/, '').replace(/(ly|er)$/, '') || w;\n}\nfunction tokens(text) {\n  return String(text || '').toLowerCase().replace(/[^a-z0-9\\s-]/g, ' ').split(/\\s+/)\n    .filter(w => w.length > 2 && !STOP.has(w)).map(stem);\n}\nfunction fnv(str) {            // FNV-1a 32-bit hash -> which dimension a word lands in\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }\n  return h;\n}\nfunction embed(text) {\n  const v = new Array(DIM).fill(0);\n  for (const w of tokens(text)) {\n    const h = fnv(w);\n    v[h % DIM] += (h & 0x80000000) ? -1 : 1;   // sign from one hash bit spreads words out\n  }\n  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;   // ‖v‖\n  return v.map(x => +(x / norm).toFixed(6));                        // unit length, so a·b == cos θ\n}\n\nconst q = $input.first().json.question || $input.first().json.chatInput || '';\nreturn [{ json: { question: q, vector: JSON.stringify(embed(q)) } }];\n"
+      },
+      "name": "Embed the question",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, trigger, node_count, active, description,\n       1 - (embedding <=> $1::vector) AS similarity\nFROM workflow_index\nORDER BY embedding <=> $1::vector\nLIMIT 3;",
+        "options": {
+          "queryReplacement": "={{ [$json.vector] }}"
+        }
+      },
+      "name": "Nearest 3 by cosine distance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres (workflow index)",
+          "id": "mpCredPg00000005"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.all().map(i => i.json);\nconst q = $('Embed the question').first().json.question;\nif (!rows.length) return [{ json: { question: q, found: false, answer: 'The workflow index is empty. Run workflow 08 first.' } }];\nconst best = rows[0];\nconst pct = (x) => (Number(x) * 100).toFixed(0) + '%';\nconst lines = [\n  `Closest match: ${best.name}  (similarity ${Number(best.similarity).toFixed(3)}, ${pct(best.similarity)})`,\n  `Trigger: ${best.trigger}. ${best.node_count} nodes. ${best.active ? 'Active.' : 'Inactive.'}`,\n  ``,\n  best.description.replace(/^.*?Trigger: [^.]*\\. /, ''),\n];\nif (rows.length > 1) {\n  lines.push(``, `Also close: ` + rows.slice(1).map(r => `${r.name} (${Number(r.similarity).toFixed(3)})`).join('; '));\n}\nreturn [{ json: { question: q, found: true, answer: lines.join('\\n'),\n                  matchedWorkflowId: best.id, matchedName: best.name, similarity: Number(best.similarity),\n                  candidates: rows.map(r => ({ id: r.id, name: r.name, similarity: Number(r.similarity) })) } }];\n"
+      },
+      "name": "Shape the answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "Embed the question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed the question": {
+      "main": [
+        [
+          {
+            "node": "Nearest 3 by cosine distance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nearest 3 by cosine distance": {
+      "main": [
+        [
+          {
+            "node": "Shape the answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}

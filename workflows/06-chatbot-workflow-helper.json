@@ -1,0 +1,133 @@
+{
+  "id": "mpChatBot0000006",
+  "name": "06 Chatbot: ask which workflow does what",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Chatbot: ask which workflow does X\nThe Chat Trigger gives you a hosted chat page. Each message is handed to workflow 07 (Execute Workflow = one workflow calling another and waiting for the result). The answer is logged to Postgres, then sent back to the chat.\n\nThe Chat Trigger in 'last node' mode needs the final node to output `{ output: text }`; that is what the Reply node does.",
+        "width": 600,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "public": true,
+        "mode": "hostedChat",
+        "initialMessages": "Ask me which workflow handles something, e.g. \"what happens when a call is missed?\" or \"how do follow-ups work?\"",
+        "options": {
+          "responseMode": "lastNode",
+          "title": "Workflow helper",
+          "subtitle": "Backed by n8n workflow 07 and Postgres/pgvector"
+        }
+      },
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b2ed8158-3467-5af8-8516-582619fc16a2"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "mpLookupWf000007"
+        },
+        "options": {}
+      },
+      "name": "Ask workflow 07 (sub-workflow)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO chat_log (session_id, question, answer, matched_workflow_id, similarity)\nVALUES ($1, $2, $3, $4, $5)\nRETURNING id, asked_at;",
+        "options": {
+          "queryReplacement": "={{ [$('When chat message received').item.json.sessionId, $('When chat message received').item.json.chatInput, $json.answer, $json.matchedWorkflowId || null, $json.similarity ?? null] }}"
+        }
+      },
+      "name": "Log to chat_log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres (workflow index)",
+          "id": "mpCredPg00000005"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst a = $('Ask workflow 07 (sub-workflow)').first().json;\nconst log = $input.first().json;\nreturn [{ json: { output: a.answer + (log.id ? `\\n\\n(logged as chat_log #${log.id})` : '') } }];\n"
+      },
+      "name": "Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Ask workflow 07 (sub-workflow)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask workflow 07 (sub-workflow)": {
+      "main": [
+        [
+          {
+            "node": "Log to chat_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to chat_log": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}
