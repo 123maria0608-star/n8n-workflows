@@ -41,8 +41,10 @@ done
 docker restart n8n >/dev/null
 # healthz answers before webhooks are registered. The webhook path itself tells us when n8n is ready:
 # "Cannot GET" = still booting, the JSON 404 about GET vs POST = registered.
-for i in $(seq 1 120); do curl -s "http://localhost:$PORT/webhook/ticket-triage" | grep -q '"code":404' && break; sleep 1; done
-echo "  webhooks registered after restart"
+# "not registered for GET requests" is the message a live POST-only webhook gives to a GET.
+# "is not registered." (no GET/POST hint) means n8n is still booting. Wait for the first one.
+for i in $(seq 1 120); do curl -s "http://localhost:$PORT/webhook/ticket-triage" | grep -q 'not registered for GET' && break; sleep 1; done
+curl -s "http://localhost:$PORT/webhook/ticket-triage" | grep -q 'not registered for GET' && echo "  webhooks live" || { echo "  webhooks did not come up; see: docker logs n8n"; exit 1; }
 curl -s -X POST "http://localhost:$PORT/rest/owner/setup" -H 'content-type: application/json' \
   -d '{"email":"demo@example.com","firstName":"Demo","lastName":"Owner","password":"Demo-pass-1234"}' >/dev/null || true
 
