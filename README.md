@@ -25,6 +25,8 @@ open them, read them, and change a threshold without a deploy.
 
 ## Importing
 
+Verified: all five import cleanly on n8n 2.37.9 (Node 24) via the CLI below, and every node type / typeVersion resolves against `n8n-nodes-base`.
+
 ```bash
 # CLI
 n8n import:workflow --separate --input=./workflows

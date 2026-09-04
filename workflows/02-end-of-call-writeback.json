@@ -283,16 +283,5 @@
   "settings": {
     "executionOrder": "v1",
     "errorWorkflow": "error-alerting"
-  },
-  "tags": [
-    {
-      "name": "vapi"
-    },
-    {
-      "name": "gohighlevel"
-    },
-    {
-      "name": "write-back"
-    }
-  ]
+  }
 }

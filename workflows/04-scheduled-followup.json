@@ -336,16 +336,5 @@
     "executionOrder": "v1",
     "errorWorkflow": "error-alerting",
     "timezone": "America/Los_Angeles"
-  },
-  "tags": [
-    {
-      "name": "cron"
-    },
-    {
-      "name": "follow-up"
-    },
-    {
-      "name": "gohighlevel"
-    }
-  ]
+  }
 }

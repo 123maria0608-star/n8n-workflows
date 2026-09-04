@@ -300,16 +300,5 @@
   "settings": {
     "executionOrder": "v1",
     "errorWorkflow": "error-alerting"
-  },
-  "tags": [
-    {
-      "name": "twilio"
-    },
-    {
-      "name": "missed-call"
-    },
-    {
-      "name": "sms"
-    }
-  ]
+  }
 }

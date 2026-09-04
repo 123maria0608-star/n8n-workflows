@@ -314,16 +314,5 @@
   "settings": {
     "executionOrder": "v1",
     "errorWorkflow": "error-alerting"
-  },
-  "tags": [
-    {
-      "name": "speed-to-lead"
-    },
-    {
-      "name": "vapi"
-    },
-    {
-      "name": "gohighlevel"
-    }
-  ]
+  }
 }
