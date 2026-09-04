@@ -1,0 +1,298 @@
+{
+  "name": "02 End-of-call write-back: Vapi \u2192 CRM tags + note \u2192 email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapi/end-of-call",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Vapi end-of-call webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "secret",
+              "leftValue": "={{ $json.headers['x-vapi-secret'] }}",
+              "rightValue": "={{ $env.VAPI_WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "type",
+              "leftValue": "={{ $json.body.message.type }}",
+              "rightValue": "end-of-call-report",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Is end-of-call report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// The assistant returns structured data at the end of every call. Turn it\n// into (a) outcome tags the CRM's own automations branch on and (b) a note a\n// human can read in ten seconds.\nconst msg = $input.first().json.body.message;\nconst d = msg.analysis?.structuredData || {};\nconst call = msg.call || {};\nconst contactId = call.metadata?.contactId || null;\nconst endedReason = msg.endedReason || '';\n\nconst tags = ['ai-call-complete'];\nif (d.booked) tags.push('ai-booked');\nelse if (d.needs_owner_callback) tags.push('ai-needs-callback');\nelse if (d.reached === 'voicemail') tags.push('ai-voicemail');\nelse if (d.reached === 'wrong_number') tags.push('ai-wrong-number');\nelse if (d.reached === 'no_answer' || /no-answer|did-not-answer/i.test(endedReason)) tags.push('ai-no-answer');\nelse tags.push('ai-reached-no-booking');\nif (d.price_deferred) tags.push('needs-quote');\nif (d.in_service_area === false) tags.push('out-of-area');\nif (d.do_not_call) tags.push('ai-do-not-call');\n\nconst note = [\n  'AI speed-to-lead call',\n  d.reached ? `Reached: ${d.reached}` : null,\n  `Service: ${d.service || '\u2014'}`,\n  d.vehicle ? `Vehicle: ${d.vehicle}` : null,\n  d.quoted_price ? `Quoted: ${d.quoted_price}` : null,\n  d.price_deferred ? 'PRICE NOT QUOTED \u2014 owner needs to send the number' : null,\n  d.booked ? `BOOKED: ${d.appointment || 'time not captured'}` : 'Not booked',\n  d.objection ? `Hesitation: ${d.objection}` : null,\n  d.needs_owner_callback ? `CALL THEM BACK: ${d.callback_reason || ''}` : null,\n  endedReason ? `Ended: ${endedReason}` : null,\n  msg.summary ? `\\n${msg.summary}` : null,\n  msg.recordingUrl ? `Recording: ${msg.recordingUrl}` : null,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: {\n  contactId, tags, note,\n  hot: !!(d.booked || d.needs_owner_callback),\n  customer: call.customer?.number || '',\n  summary: msg.summary || '',\n  recordingUrl: msg.recordingUrl || '',\n}}];\n"
+      },
+      "name": "Extract outcome + tags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cid",
+              "leftValue": "={{ $json.contactId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has CRM contact?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $json.contactId }}/tags",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ tags: $json.tags }) }}",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        }
+      },
+      "name": "Add outcome tags",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "GoHighLevel API token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $('Extract outcome + tags').item.json.contactId }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $('Extract outcome + tags').item.json.note }) }}",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        }
+      },
+      "name": "Add call note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "GoHighLevel API token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_FROM }}",
+        "toEmail": "={{ $env.OWNER_EMAIL }}",
+        "subject": "={{ ($('Extract outcome + tags').item.json.hot ? '\ud83d\udd25 ' : '') + 'AI call: ' + $('Extract outcome + tags').item.json.tags.slice(1,2).join('') + ' \u2014 ' + $('Extract outcome + tags').item.json.customer }}",
+        "emailFormat": "text",
+        "text": "={{ $('Extract outcome + tags').item.json.note }}",
+        "options": {}
+      },
+      "name": "Email owner (backstop, always fires)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        200
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP (Resend)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Vapi end-of-call webhook": {
+      "main": [
+        [
+          {
+            "node": "Is end-of-call report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is end-of-call report?": {
+      "main": [
+        [
+          {
+            "node": "Extract outcome + tags",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract outcome + tags": {
+      "main": [
+        [
+          {
+            "node": "Has CRM contact?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has CRM contact?": {
+      "main": [
+        [
+          {
+            "node": "Add outcome tags",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email owner (backstop, always fires)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add outcome tags": {
+      "main": [
+        [
+          {
+            "node": "Add call note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add call note": {
+      "main": [
+        [
+          {
+            "node": "Email owner (backstop, always fires)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-alerting"
+  },
+  "tags": [
+    {
+      "name": "vapi"
+    },
+    {
+      "name": "gohighlevel"
+    },
+    {
+      "name": "write-back"
+    }
+  ]
+}

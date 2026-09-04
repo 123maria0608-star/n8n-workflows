@@ -1,0 +1,176 @@
+{
+  "name": "05 Error alerting (shared error workflow)",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e = $input.first().json;\nconst wf = e.workflow || {}, ex = e.execution || {};\nconst err = ex.error || {};\nconst last = ex.lastNodeExecuted || '\u2014';\nreturn [{ json: {\n  subject: `[n8n] ${wf.name || 'workflow'} failed at \"${last}\"`,\n  text: [\n    `Workflow: ${wf.name} (${wf.id})`,\n    `Execution: ${ex.id}  mode=${ex.mode}  retry=${ex.retryOf || 'no'}`,\n    `Node: ${last}`,\n    `Error: ${err.message || JSON.stringify(err).slice(0, 500)}`,\n    ex.url ? `Open: ${ex.url}` : null,\n  ].filter(Boolean).join('\\n'),\n  fingerprint: `${wf.id}:${last}`,\n}}];\n"
+      },
+      "name": "Build alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// One email per distinct (workflow, node) per hour. A flapping API should\n// not fill the inbox; the first alert is the useful one.\nconst a = $input.first().json;\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst now = Date.now();\nfor (const k of Object.keys(store.seen)) if (now - store.seen[k] > 3600000) delete store.seen[k];\nconst suppressed = !!store.seen[a.fingerprint];\nif (!suppressed) store.seen[a.fingerprint] = now;\nreturn [{ json: { ...a, suppressed } }];\n"
+      },
+      "name": "Throttle: same failure \u2264 1/hr",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "s",
+              "leftValue": "={{ $json.suppressed }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_FROM }}",
+        "toEmail": "={{ $env.ONCALL_EMAIL }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "name": "Email on-call",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        200
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP (Resend)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.subject + '\\n' + $json.text }) }}",
+        "options": {}
+      },
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build alert": {
+      "main": [
+        [
+          {
+            "node": "Throttle: same failure \u2264 1/hr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Throttle: same failure \u2264 1/hr": {
+      "main": [
+        [
+          {
+            "node": "Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send?": {
+      "main": [
+        [
+          {
+            "node": "Email on-call",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "ops"
+    },
+    {
+      "name": "alerting"
+    }
+  ]
+}

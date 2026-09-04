@@ -1,0 +1,315 @@
+{
+  "name": "03 Missed-call rescue: Twilio status \u2192 SMS + email + log",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "twilio/call-status",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Twilio call-status webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ ['no-answer','busy','failed'].includes($json.body.DialCallStatus || $json.body.CallStatus) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "inbound",
+              "leftValue": "={{ $json.body.Direction }}",
+              "rightValue": "inbound",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Missed? (no-answer / busy / failed)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst b = $input.first().json.body;\nconst from = b.From, to = b.To;\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nstore.texted = store.texted || {};\nconst now = Date.now(), DAY = 24*60*60*1000;\n// One rescue text per caller per day. Nobody wants three of these.\nconst already = store.texted[from] && now - store.texted[from] < DAY;\nconst optedOut = store.optOut.includes(from);\nif (!already && !optedOut) store.texted[from] = now;\nreturn [{ json: {\n  from, to, callSid: b.CallSid, status: b.DialCallStatus || b.CallStatus,\n  send: !already && !optedOut,\n  reason: optedOut ? 'opted_out' : already ? 'already_texted_today' : null,\n  at: new Date().toISOString(),\n}}];\n"
+      },
+      "name": "Shape + opt-out check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "send",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Send rescue text?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "from": "={{ $json.to }}",
+        "to": "={{ $json.from }}",
+        "message": "={{ $env.BUSINESS_NAME }} here \u2014 sorry we missed you. Reply with what you need (service + vehicle/address) and we'll get you a quote or a time. Reply STOP to opt out.",
+        "options": {}
+      },
+      "name": "SMS the caller back",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        880,
+        100
+      ],
+      "credentials": {
+        "twilioApi": {
+          "name": "Twilio"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_FROM }}",
+        "toEmail": "={{ $env.OWNER_EMAIL }}",
+        "subject": "=Missed call from {{ $('Shape + opt-out check').item.json.from }} ({{ $('Shape + opt-out check').item.json.status }})",
+        "emailFormat": "text",
+        "text": "=Missed call at {{ $('Shape + opt-out check').item.json.at }}\nFrom: {{ $('Shape + opt-out check').item.json.from }}\nRescue text sent: {{ $('Shape + opt-out check').item.json.send ? 'yes' : 'no (' + $('Shape + opt-out check').item.json.reason + ')' }}\nCall SID: {{ $('Shape + opt-out check').item.json.callSid }}",
+        "options": {}
+      },
+      "name": "Email owner the missed call",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "SMTP (Resend)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.CALL_LOG_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "missed-calls"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "name": "Log to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "twilio/inbound-sms",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Twilio inbound SMS (STOP handling)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// A plain Twilio number does not enforce STOP for you the way a Messaging\n// Service does, so honour it here before anything else can text this person.\nconst b = $input.first().json.body;\nconst body = String(b.Body || '').trim().toLowerCase();\nconst store = $getWorkflowStaticData('global');\nstore.optOut = store.optOut || [];\nlet action = 'none';\nif (/^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(body)) { if (!store.optOut.includes(b.From)) store.optOut.push(b.From); action = 'opt_out'; }\nif (/^(start|unstop|yes)$/.test(body)) { store.optOut = store.optOut.filter(n => n !== b.From); action = 'opt_in'; }\nreturn [{ json: { from: b.From, body: b.Body, action } }];\n"
+      },
+      "name": "Record STOP / START",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Twilio call-status webhook": {
+      "main": [
+        [
+          {
+            "node": "Missed? (no-answer / busy / failed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missed? (no-answer / busy / failed)": {
+      "main": [
+        [
+          {
+            "node": "Shape + opt-out check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Shape + opt-out check": {
+      "main": [
+        [
+          {
+            "node": "Send rescue text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send rescue text?": {
+      "main": [
+        [
+          {
+            "node": "SMS the caller back",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email owner the missed call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMS the caller back": {
+      "main": [
+        [
+          {
+            "node": "Email owner the missed call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email owner the missed call": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio inbound SMS (STOP handling)": {
+      "main": [
+        [
+          {
+            "node": "Record STOP / START",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-alerting"
+  },
+  "tags": [
+    {
+      "name": "twilio"
+    },
+    {
+      "name": "missed-call"
+    },
+    {
+      "name": "sms"
+    }
+  ]
+}
