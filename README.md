@@ -14,6 +14,20 @@ bash demo/demo.sh                        # ~1 minute, prints everything it does
 bash demo/serve.sh                       # then open http://localhost:5678
 ```
 
+Or the same thing in Docker, which is how a company would run it:
+
+```bash
+brew install colima docker docker-compose && colima start   # Docker without Docker Desktop
+bash demo/docker-demo.sh                 # n8n + Postgres in containers, workflows imported, events fired
+```
+
+![Executions inside Docker](docs/img/12-docker-executions.png)
+
+[docs/docker-demo-transcript.txt](docs/docker-demo-transcript.txt) is that run
+on my machine: two containers, 8 workflows published from the n8n CLI inside the
+container, a webhook answered through the container, the indexer and the chatbot
+writing to the Postgres container.
+
 [docs/run-it-yourself.md](docs/run-it-yourself.md) has the step-by-step.
 [docs/demo-transcript.txt](docs/demo-transcript.txt) is what the demo printed
 on my machine.
@@ -99,8 +113,9 @@ The chatbot, and the chat page it serves:
   each decision came from.
 - [docs/interview-prep.md](docs/interview-prep.md): Docker vs npm vs Cloud,
   multi-user and queue mode, sticky sessions, cosine similarity and pgvector.
-- [docker-compose.yml](docker-compose.yml): the self-hosted production shape,
-  with an optional queue-mode profile.
+- [docker-compose.yml](docker-compose.yml): the self-hosted production shape
+  (n8n + Postgres/pgvector), with an optional queue-mode profile (Redis +
+  workers). `demo/docker-demo.sh` drives it.
 
 ## Regenerating the JSON
 

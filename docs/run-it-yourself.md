@@ -86,6 +86,27 @@ credentials with real keys. Nothing else changes. `workflows/*.json` in this
 repo already carries the production URLs; the demo only swaps them at import
 time (`demo/prepare-demo.js`).
 
+## The Docker version (what most teams actually run)
+
+```bash
+brew install colima docker docker-compose     # Docker without Docker Desktop
+mkdir -p ~/.docker/cli-plugins && ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" ~/.docker/cli-plugins/docker-compose
+colima start                                  # boots the Linux VM Docker runs in (2-5 min first time)
+
+pkill -f "n8n start"                          # if the npm demo is still on port 5678
+bash demo/docker-demo.sh                      # n8n + Postgres in containers, workflows imported, one event fired
+```
+
+Then open http://localhost:5678, click **Executions**, and paste the curl
+commands the script prints one at a time. Each one shows up in the list within a
+second. `docker compose ps` shows the two containers, `docker compose logs -f n8n`
+tails the server, `bash demo/docker-demo.sh down` removes everything.
+
+The difference from the npm demo is only where n8n and Postgres run. The
+workflow JSON, the credentials file and the mocks are the same; the only values
+that change are hostnames (`postgres` instead of `localhost:5433`, and
+`host.docker.internal` so the container can reach the mocks on your laptop).
+
 ## If something does not start
 
 - `n8n did not start`: read `demo/out/n8n.log`. Usually port 5678 is taken by a

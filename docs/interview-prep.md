@@ -14,9 +14,10 @@ Three ways to run n8n, and I have used two of them:
    Postgres, and for scale one for Redis. The database is Postgres instead of
    SQLite because SQLite cannot be shared by several processes. Same workflows,
    same JSON, just a different `DB_TYPE` and connection settings. The compose
-   file for that is `docker-compose.yml` here; I have not run it on this laptop
-   because Docker Desktop is not installed on it, but every value in it is one I
-   have set by hand.
+   file for that is `docker-compose.yml` here, and `demo/docker-demo.sh` runs
+   it: n8n and Postgres in containers, workflows imported and published with the
+   n8n CLI inside the container, then the same webhook events fired from the
+   terminal. On my Mac I run Docker through Colima (no Docker Desktop).
 3. **n8n Cloud.** n8n hosts it for you. Fastest start, least control. Blocks
    `$env` in expressions, no shell access, data lives on their servers. For a bank
    or a GSE that is usually a non-starter, which is why self-hosted matters.

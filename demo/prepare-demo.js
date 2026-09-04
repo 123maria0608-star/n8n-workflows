@@ -9,7 +9,16 @@ const SRC = "workflows";
 const OUT = "demo/out/build";
 fs.mkdirSync(path.join(OUT, "workflows"), { recursive: true });
 
-const MOCK = "http://localhost:4010";
+// Inside Docker the mocks and mail sink run on the host, reached as host.docker.internal.
+const MOCK_HOST = process.env.DEMO_MOCK_HOST || "localhost";
+const MOCK = `http://${MOCK_HOST}:4010`;
+const PG = {
+  host: process.env.DEMO_PG_HOST || "localhost",
+  port: Number(process.env.DEMO_PG_PORT || 5433),
+  database: process.env.DEMO_PG_DB || "n8ndemo",
+  user: process.env.DEMO_PG_USER || "n8n",
+  password: process.env.DEMO_PG_PASSWORD || "",
+};
 const overrides = {
   vapiBase: `${MOCK}/vapi`,
   ghlBase: `${MOCK}/ghl`,
@@ -23,7 +32,7 @@ const overrides = {
   alertFrom: "n8n@demo.test",
   slackWebhookUrl: "",
   paceSeconds: 1,
-  n8nBase: "http://localhost:5678",
+  n8nBase: process.env.DEMO_N8N_BASE || "http://localhost:5678",
 };
 
 for (const f of fs.readdirSync(SRC).filter((x) => x.endsWith(".json"))) {
@@ -43,9 +52,9 @@ const credentials = [
   { id: "mpCredVapi000001", name: "Vapi API key", type: "httpHeaderAuth", data: { name: "Authorization", value: "Bearer demo-vapi-key" } },
   { id: "mpCredGhl0000002", name: "GoHighLevel API token", type: "httpHeaderAuth", data: { name: "Authorization", value: "Bearer demo-ghl-token" } },
   { id: "mpCredTwilio0003", name: "Twilio (basic auth)", type: "httpBasicAuth", data: { user: "ACdemo", password: "demo-auth-token" } },
-  { id: "mpCredSmtp000004", name: "SMTP (Resend)", type: "smtp", data: { user: "", password: "", host: "localhost", port: 2525, secure: false, disableStartTls: true, hostName: "" } },
+  { id: "mpCredSmtp000004", name: "SMTP (Resend)", type: "smtp", data: { user: "", password: "", host: MOCK_HOST, port: 2525, secure: false, disableStartTls: true, hostName: "" } },
   // The throwaway Postgres demo.sh starts on port 5433 (trust auth, no password).
-  { id: "mpCredPg00000005", name: "Postgres (workflow index)", type: "postgres", data: { host: "localhost", port: 5433, database: "n8ndemo", user: "n8n", password: "", ssl: "disable", allowUnauthorizedCerts: false } },
+  { id: "mpCredPg00000005", name: "Postgres (workflow index)", type: "postgres", data: { ...PG, ssl: "disable", allowUnauthorizedCerts: false } },
   // Placeholder. demo.sh creates a real n8n API key after n8n starts and writes it into this credential.
   { id: "mpCredN8nApi0006", name: "n8n API key (self)", type: "httpHeaderAuth", data: { name: "X-N8N-API-KEY", value: "set-by-demo.sh" } },
 ];

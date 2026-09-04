@@ -60,7 +60,8 @@
           "name": "Postgres (workflow index)",
           "id": "mpCredPg00000005"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {

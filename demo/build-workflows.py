@@ -600,6 +600,9 @@ return [{ json: { question: q, found: true, answer: lines.join('\n'),
                   candidates: rows.map(r => ({ id: r.id, name: r.name, similarity: Number(r.similarity) })) } }];
 """}),
 ]
+# With an empty index the SELECT returns no rows; keep the chain alive so the
+# "index is empty, run 08" answer still reaches the chat.
+[x for x in n if x["name"] == "Nearest 3 by cosine distance"][0]["alwaysOutputData"] = True
 c = {
     "Called by another workflow": {"main": [[L("Embed the question")]]},
     "Embed the question": {"main": [[L("Nearest 3 by cosine distance")]]},

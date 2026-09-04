@@ -1,0 +1,53 @@
+== 1/5  build the import set for Docker (mocks on host.docker.internal, Postgres in the postgres container)
+01-speed-to-lead.json: 13 config values pointed at the mocks
+02-end-of-call-writeback.json: 13 config values pointed at the mocks
+03-missed-call-rescue.json: 13 config values pointed at the mocks
+04-scheduled-followup.json: 13 config values pointed at the mocks
+05-error-alerting.json: 3 config values pointed at the mocks
+06-chatbot-workflow-helper.json: 0 config values pointed at the mocks
+07-lookup-workflow-subworkflow.json: 0 config values pointed at the mocks
+08-index-workflows-to-postgres.json: 1 config values pointed at the mocks
+credentials.json: 6 demo credentials
+== 2/5  docker compose up (n8n + postgres with pgvector)
+ Image pgvector/pgvector:pg17 Pulled 
+ Image docker.n8n.io/n8nio/n8n:latest Pulled 
+NAME                       IMAGE                            COMMAND                  SERVICE    CREATED          STATUS                    PORTS
+n8n-workflows-n8n-1        docker.n8n.io/n8nio/n8n:latest   "tini -- /docker-ent…"   n8n        11 seconds ago   Up 4 seconds              0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+n8n-workflows-postgres-1   pgvector/pgvector:pg17           "docker-entrypoint.s…"   postgres   11 seconds ago   Up 10 seconds (healthy)   5432/tcp
+== 3/5  import credentials + workflows inside the container, publish, restart
+Acquiring database migration lock...
+Successfully imported 6 credentials.
+Acquiring database migration lock...
+Importing 8 workflows...
+Successfully imported 8 workflows.
+  workflows activated: 8
+== 4/5  owner account, API key for workflow 08, mocks + mail sink on the laptop
+  editor:  http://localhost:5678   (demo@example.com / Demo-pass-1234)
+== 5/5  one event, so Executions has something in it
+{"ok":true,"called":"+15555550101","callId":"call_lbvxdld0"}
+Everything is up. Open http://localhost:5678, click Executions in the left bar, and paste these one at a time:
+# a new lead from the CRM  ->  workflow 01 (watch it appear in Executions)
+curl -X POST http://localhost:5678/webhook/lead -H 'content-type: application/json' -H 'x-webhook-secret: demo-secret' \
+  -d '{"contact_id":"c_104","first_name":"Sam","phone":"5555550104","customData":{"service":"tint"}}'
+# the same lead again inside 6 hours  ->  skipped by the dedupe guard
+curl -X POST http://localhost:5678/webhook/lead -H 'content-type: application/json' -H 'x-webhook-secret: demo-secret' \
+  -d '{"contact_id":"c_104","first_name":"Sam","phone":"5555550104"}'
+# wrong secret  ->  401
+curl -i -X POST http://localhost:5678/webhook/lead -H 'content-type: application/json' -H 'x-webhook-secret: nope' -d '{}'
+# a missed call from Twilio  ->  workflow 03 texts back (see demo/out/mocks.log) and emails (demo/out/mail)
+curl -X POST http://localhost:5678/webhook/twilio/call-status \
+  -d 'CallSid=CA9&From=%2B15555550177&To=%2B19082198027&Direction=inbound&DialCallStatus=no-answer'
+# Vapi outage  ->  workflow 01 fails on purpose, workflow 05 emails on-call
+curl -X POST http://localhost:5678/webhook/lead -H 'content-type: application/json' -H 'x-webhook-secret: demo-secret' \
+  -d '{"contact_id":"c_555","first_name":"Outage","phone":"5555550000"}'
+# index the workflows into Postgres (workflow 08), then ask the chatbot (06 -> 07 -> Postgres)
+docker compose exec n8n n8n execute --id mpIndexer0000008 | grep -E '"indexed"'
+open http://localhost:5678/webhook/b2ed8158-3467-5af8-8516-582619fc16a2/chat
+# what Postgres holds
+docker compose exec postgres psql -U n8n -d n8n -c 'select id, name, trigger from workflow_index order by id'
+docker compose exec postgres psql -U n8n -d n8n -c 'select id, left(question,50) q, similarity from chat_log'
+# the containers themselves
+docker compose ps
+docker compose logs -f n8n
+# tear it all down
+bash demo/docker-demo.sh down
