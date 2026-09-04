@@ -828,6 +828,9 @@ c = {
 dump("11-docs-search-api.json", wf("11", "11 Docs: deterministic search API (Postgres full-text)", n, c))
 
 # ───────────────────────── 12 serve a PDF ─────────────────────────
+# n8n adds "Content-Security-Policy: sandbox ..." to every webhook response unless the
+# workflow sets that header itself. The sandbox blocks the browser's PDF viewer and
+# would also sandbox the HTML page, so 12 and 13 set their own CSP.
 n = [
     sticky("## Serve a PDF\n`GET /docs/file?name=how-this-works.pdf`\n\nThe name must be a plain file name (no slashes) and must exist in the index. Then the file is read from the docs folder and returned as `application/pdf`, inline, so the browser shows the whole document.", [0, 40], 560, 150),
     node("Webhook: GET /docs/file", "n8n-nodes-base.webhook", 2, [0, 300],
@@ -846,7 +849,7 @@ return [{ json: { name, ok, path: $('Config').first().json.docsDir + '/' + name 
          {"fileSelector": "={{ $('Check the name').item.json.path }}", "options": {}}),
     node("Respond with the PDF", "n8n-nodes-base.respondToWebhook", 1.1, [1320, 200],
          {"respondWith": "binary", "responseDataSource": "automatically",
-          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "application/pdf"}, {"name": "Content-Disposition", "value": "inline"}]}}}),
+          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "application/pdf"}, {"name": "Content-Disposition", "value": "inline"}, {"name": "Content-Security-Policy", "value": "frame-ancestors 'self'"}]}}}),
     node("Respond 404", "n8n-nodes-base.respondToWebhook", 1.1, [1100, 440],
          {"respondWith": "json", "responseBody": "={{ { error: 'no such document in the index' } }}", "options": {"responseCode": 404}}),
 ]
@@ -870,7 +873,7 @@ n = [
          {"httpMethod": "GET", "path": "app", "responseMode": "responseNode", "options": {}}),
     node("Respond with HTML", "n8n-nodes-base.respondToWebhook", 1.1, [220, 300],
          {"respondWith": "text", "responseBody": APP_HTML,
-          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "text/html; charset=utf-8"}]}}}),
+          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "text/html; charset=utf-8"}, {"name": "Content-Security-Policy", "value": "default-src 'self' 'unsafe-inline' data: blob: https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'self'"}]}}}),
 ]
 c = {"Webhook: GET /app": {"main": [[L("Respond with HTML")]]}}
 dump("13-app-page.json", wf("13", "13 App: the HTML page (served by a webhook)", n, c))

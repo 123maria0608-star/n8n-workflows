@@ -32,7 +32,10 @@ docker run -d --name n8n --network n8n-net -p $PORT:5678 -v n8n_data:/home/node/
   --add-host host.docker.internal:host-gateway \
   -e N8N_SECURE_COOKIE=false -e N8N_RUNNERS_ENABLED=true -e N8N_DIAGNOSTICS_ENABLED=false \
   -e N8N_ENCRYPTION_KEY=demo-only-not-a-secret-quickstart \
+  -e N8N_INSECURE_DISABLE_WEBHOOK_IFRAME_SANDBOX=true \
   n8nio/n8n >/dev/null
+# The last flag: n8n wraps every webhook response in a "sandbox" Content-Security-Policy, which blocks
+# the browser's PDF viewer and scripts on served pages. Workflows 12 and 13 set their own CSP instead.
 for i in $(seq 1 60); do docker exec n8n-postgres pg_isready -U n8n -q 2>/dev/null && break; sleep 1; done
 docker exec -i n8n-postgres psql -U n8n -d n8n -q < demo/schema.sql   # idempotent; the volume may be from an older run
 for i in $(seq 1 120); do curl -sf "http://localhost:$PORT/healthz" >/dev/null && break; sleep 1; done
@@ -77,9 +80,14 @@ say "the web page: index the PDFs (workflow 10) and the workflow list (08), then
 curl -s -c demo/out/cookies -X POST "http://localhost:$PORT/rest/login" -H 'content-type: application/json' \
   -d '{"emailOrLdapLoginId":"demo@example.com","password":"Demo-pass-1234"}' >/dev/null
 APIKEY=$(curl -s -b demo/out/cookies -X POST "http://localhost:$PORT/rest/api-keys" -H 'content-type: application/json' \
-  -d '{"label":"quickstart-indexer","expiresAt":null,"scopes":["workflow:list","workflow:read"]}' | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).data.rawApiKey))')
-curl -s -b demo/out/cookies -X PATCH "http://localhost:$PORT/rest/credentials/mpCredN8nApi0006" -H 'content-type: application/json' \
-  -d "{\"name\":\"n8n API key (self)\",\"type\":\"httpHeaderAuth\",\"data\":{\"name\":\"X-N8N-API-KEY\",\"value\":\"$APIKEY\"}}" >/dev/null
+  -d "{\"label\":\"quickstart-$(date +%s)\",\"expiresAt\":null,\"scopes\":[\"workflow:list\",\"workflow:read\"]}" \
+  | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{console.log(JSON.parse(b).data.rawApiKey||"")}catch{console.log("")}})')
+if [ -n "$APIKEY" ]; then
+  curl -s -b demo/out/cookies -X PATCH "http://localhost:$PORT/rest/credentials/mpCredN8nApi0006" -H 'content-type: application/json' \
+    -d "{\"name\":\"n8n API key (self)\",\"type\":\"httpHeaderAuth\",\"data\":{\"name\":\"X-N8N-API-KEY\",\"value\":\"$APIKEY\"}}" >/dev/null
+else
+  echo "  (could not mint an n8n API key; workflow 08 will reuse the previous one if any)"
+fi
 docker exec -e N8N_RUNNERS_BROKER_PORT=5680 n8n n8n execute --id mpDocsIngest0010 2>&1 | grep -E '"chunks"' | sed 's/^ */  /' || true
 docker exec -e N8N_RUNNERS_BROKER_PORT=5681 n8n n8n execute --id mpIndexer0000008 2>&1 | grep -E '"indexed"' | sed 's/^ */  /' || true
 echo "  $(docker exec n8n-postgres psql -U n8n -d n8n -tAc "select count(distinct name) || ' PDFs, ' || count(*) || ' chunks in docs' from docs")"

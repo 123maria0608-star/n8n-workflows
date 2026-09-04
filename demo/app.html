@@ -29,7 +29,9 @@
   .card .meta { color:var(--muted); font-size:13px; }
   .card p { margin:8px 0 0; }
   mark { background:#fff2a8; padding:0 2px; }
-  iframe { width:100%; height:78vh; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  #viewer { width:100%; height:78vh; overflow:auto; border:1px solid var(--line); border-radius:10px; background:#e9e9e9; padding:10px; }
+  #viewer canvas { display:block; margin:0 auto 10px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.2); max-width:100%; }
+  #viewer .empty { color:var(--muted); text-align:center; padding-top:40px; }
   .hint { color:var(--muted); font-size:13px; margin:6px 0 0; }
   .kv { display:grid; grid-template-columns: 150px 1fr; gap:6px 12px; font-size:14px; }
   .kv b { color:var(--muted); font-weight:500; }
@@ -62,7 +64,7 @@
   <div class="status" id="sStatus"></div>
   <div class="split">
     <div id="results"></div>
-    <div><iframe id="pdf" title="PDF"></iframe><p class="hint" id="pdfName">Click a result to open the whole PDF here.</p></div>
+    <div><div id="viewer"><div class="empty">Click a result to open the whole PDF here.</div></div><p class="hint" id="pdfName"></p></div>
   </div>
 </section>
 
@@ -91,7 +93,7 @@
   </div>
   <div class="card">
     <h3>Open PDF</h3>
-    <p><code>GET /webhook/docs/file?name=x.pdf</code> checks the name against the index, reads the file from disk, and responds with the binary and <code>Content-Type: application/pdf</code>, so the browser renders it in the frame.</p>
+    <p><code>GET /webhook/docs/file?name=x.pdf</code> checks the name against the index, reads the file from disk, and responds with the binary and <code>Content-Type: application/pdf</code>. The page fetches that and draws every page with PDF.js, so the whole document shows without depending on a browser plugin. The same URL opens in a new tab as a normal PDF.</p>
   </div>
   <div class="card">
     <h3>Triage and Ask</h3>
@@ -100,6 +102,7 @@
 </section>
 </main>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 const base = location.origin + '/webhook';
 const $ = (s) => document.querySelector(s);
@@ -144,9 +147,28 @@ async function search() {
     }
   } catch (e) { $('#sStatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
-function openPdf(name) {
-  $('#pdf').src = `${base}/docs/file?name=${encodeURIComponent(name)}`;
-  $('#pdfName').textContent = name;
+async function openPdf(name) {
+  const url = `${base}/docs/file?name=${encodeURIComponent(name)}`;
+  const viewer = $('#viewer');
+  viewer.innerHTML = '<div class="empty">loading…</div>';
+  $('#pdfName').innerHTML = `${esc(name)} · <a href="${url}" target="_blank" rel="noopener">open in a new tab</a> · served by workflow 12`;
+  try {
+    if (!window.pdfjsLib) throw new Error('PDF.js did not load (no internet?). Use "open in a new tab".');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ url }).promise;
+    viewer.innerHTML = '';
+    const width = viewer.clientWidth - 40;
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const scale = width / page.getViewport({ scale: 1 }).width;
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      viewer.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    }
+    $('#pdfName').innerHTML += ` · ${pdf.numPages} page${pdf.numPages === 1 ? '' : 's'}`;
+  } catch (e) { viewer.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
 }
 $('#goSearch').onclick = search;
 $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });

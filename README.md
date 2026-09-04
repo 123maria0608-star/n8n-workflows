@@ -61,7 +61,11 @@ on my machine.
 | 10 | [Index PDFs](workflows/10-docs-ingest-pdfs.json) | Manual, nightly | Reads every PDF in `demo/pdfs`, extracts the text, splits it into chunks, upserts into `docs`. Postgres keeps a full-text index on it. |
 | 11 | [Deterministic search](workflows/11-docs-search-api.json) | Webhook `POST /docs/search` | Keyword mode: `websearch_to_tsquery`, `ts_rank_cd`, `ts_headline` snippets. Exact mode: `ILIKE`. Same input, same rows, no model. |
 | 12 | [Serve a PDF](workflows/12-docs-serve-pdf.json) | Webhook `GET /docs/file?name=` | Validates the name against the index, reads the file, responds with the binary as `application/pdf` inline. |
-| 13 | [The web page](workflows/13-app-page.json) | Webhook `GET /app` | Responds with an HTML page whose buttons call 11, 12, 09 and the chat trigger. No separate web server. |
+| 13 | [The web page](workflows/13-app-page.json) | Webhook `GET /app` | Responds with an HTML page whose buttons call 11, 12, 09 and the chat trigger, and draws the whole PDF with PDF.js next to the hits. No separate web server. |
+
+![The page: exact-phrase search with the PDF rendered beside the hit](docs/img/14-app-search.jpg)
+
+![The page: ticket triage](docs/img/15-app-triage.png)
 
 ![All eight workflows published](docs/img/00-workflows.png)
 
@@ -123,6 +127,11 @@ The chatbot, and the chat page it serves:
   parameter list is an array expression so values with commas survive.
 - **Sub-workflows for reuse.** 06 calls 07 with Execute Workflow; 07 can be
   called by anything else that needs "which workflow is this about?".
+- **n8n as the web server.** Workflow 13 returns HTML from a Respond node. n8n
+  wraps webhook responses in a sandbox CSP by default, which blocks the PDF
+  viewer and scripts, so the run scripts set
+  `N8N_INSECURE_DISABLE_WEBHOOK_IFRAME_SANDBOX=true` and the page renders PDFs
+  with PDF.js instead of relying on the browser plugin.
 
 ## Reading list
 

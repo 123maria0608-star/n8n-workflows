@@ -24,7 +24,7 @@ PSQL="$PGBIN/psql -h localhost -p $PGPORT -U n8n -d n8ndemo -v ON_ERROR_STOP=1"
 export N8N_USER_FOLDER="$PWD/demo/out/n8n"
 export N8N_PORT=$PORT N8N_RUNNERS_ENABLED=true N8N_DIAGNOSTICS_ENABLED=false
 export N8N_LOG_LEVEL=info N8N_SECURE_COOKIE=false N8N_ENCRYPTION_KEY=demo-only-not-a-secret
-export N8N_PERSONALIZATION_ENABLED=false N8N_VERSION_NOTIFICATIONS_ENABLED=false
+export N8N_PERSONALIZATION_ENABLED=false N8N_VERSION_NOTIFICATIONS_ENABLED=false N8N_INSECURE_DISABLE_WEBHOOK_IFRAME_SANDBOX=true
 export MAIL_DIR="$PWD/demo/out/mail"
 export N8N_RESTRICT_FILE_ACCESS_TO="$PWD/demo/pdfs" DEMO_DOCS_DIR="$PWD/demo/pdfs"
 # `n8n execute` (CLI) runs beside the server, so its task-runner broker needs its own port.

@@ -158,6 +158,10 @@
               {
                 "name": "Content-Disposition",
                 "value": "inline"
+              },
+              {
+                "name": "Content-Security-Policy",
+                "value": "frame-ancestors 'self'"
               }
             ]
           }

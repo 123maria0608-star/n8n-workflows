@@ -7,8 +7,8 @@ NOTICE:  relation "chat_log_session_idx" already exists, skipping
 NOTICE:  relation "docs" already exists, skipping
 NOTICE:  relation "docs_tsv_idx" already exists, skipping
 NAMES          IMAGE                    STATUS          PORTS
-n8n            n8nio/n8n                Up 15 seconds   0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
-n8n-postgres   pgvector/pgvector:pg17   Up 15 seconds   5432/tcp
+n8n            n8nio/n8n                Up 14 seconds   0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+n8n-postgres   pgvector/pgvector:pg17   Up 14 seconds   5432/tcp
 == 2/4  copy the workflow files in, import, publish, restart
 Successfully imported 7 credentials.
 Importing 13 workflows...
@@ -25,26 +25,32 @@ curl -X POST http://localhost:5678/webhook/ticket-triage \
   "ticket": "I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.",
   "triage": {
     "category": "billing",
-    "priority": "high",
+    "priority": "urgent",
     "sentiment": "angry",
     "summary": "Customer reports being double-charged this month and experiencing repeated app logouts, threatening cancellation if unresolved.",
     "key_issues": [
       "Double billing charge this month",
       "App repeatedly logs user out",
-      "Threat of cancellation"
+      "Threat to cancel subscription"
     ],
     "requires_human": true,
-    "suggested_reply": "We're sorry for the trouble. We're looking into the duplicate charge right away and will issue a refund if confirmed. We're also investigating the login issue—could you let us know your device/browser so we can resolve it quickly? Thank you for your patience."
+    "suggested_reply": "We're sorry for the trouble. We're looking into the duplicate charge right away and will refund any billing error promptly. We're also escalating the login issue to our technical team. We'll follow up shortly with updates on both."
   },
   "model": "claude-sonnet-5",
   "usage": {
     "input_tokens": 887,
-    "output_tokens": 323
+    "output_tokens": 316
   }
 }
 == the web page: index the PDFs (workflow 10) and the workflow list (08), then open /webhook/app
-  "chunks": 27,
-  "indexed": 13,
-  4 PDFs, 27 chunks in docs
-Open http://localhost:5678/webhook/app  (the page; search, triage, ask, open a PDF)
-Open http://localhost:5678             (the editor: demo@example.com / Demo-pass-1234; click Executions)
+[eval]:1
+process.stdin.on("data",d=>console.log(JSON.parse(d).data.rawApiKey))
+                                                         ^
+TypeError: Cannot read properties of undefined (reading 'rawApiKey')
+    at Socket.<anonymous> ([eval]:1:58)
+    at Socket.emit (node:events:514:28)
+    at addChunk (node:internal/streams/readable:567:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:518:3)
+    at Readable.push (node:internal/streams/readable:398:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+Node.js v24.20.0
