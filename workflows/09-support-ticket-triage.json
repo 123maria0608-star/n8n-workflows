@@ -1,0 +1,271 @@
+{
+  "id": "mpTicketTriage09",
+  "name": "09 Support ticket triage (structured output)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Support ticket triage (structured output)\nPOST a ticket to the production webhook:\n\n```\ncurl -X POST http://localhost:5678/webhook/ticket-triage \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"ticket\": \"I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.\"}'\n```\n\nThe model is forced to answer through one tool with a JSON schema, so the shape is guaranteed. Opening the URL in a browser is a GET and returns 404 on purpose: the node only accepts POST.",
+        "width": 620,
+        "height": 260
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ticket-triage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: POST /ticket-triage",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "7b4c6a37-073a-512c-8828-373ced9118c6"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "anthropicBase",
+              "name": "anthropicBase",
+              "value": "https://api.anthropic.com",
+              "type": "string"
+            },
+            {
+              "id": "triageModel",
+              "name": "triageModel",
+              "value": "claude-sonnet-5",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "t",
+              "leftValue": "={{ $json.body.ticket }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has a ticket?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: 'send JSON like {\"ticket\": \"...\"}' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Build the whole API request here rather than inside an expression: a JSON\n// schema contains \"}}\" which n8n would read as the end of an expression.\nconst cfg = $('Config').first().json;\nconst ticket = $('Webhook: POST /ticket-triage').first().json.body.ticket;\nconst schema = \"{\\\"type\\\": \\\"object\\\", \\\"properties\\\": {\\\"category\\\": {\\\"type\\\": \\\"string\\\", \\\"enum\\\": [\\\"billing\\\", \\\"login\\\", \\\"bug\\\", \\\"feature_request\\\", \\\"cancellation\\\", \\\"other\\\"]}, \\\"priority\\\": {\\\"type\\\": \\\"string\\\", \\\"enum\\\": [\\\"low\\\", \\\"medium\\\", \\\"high\\\", \\\"urgent\\\"]}, \\\"sentiment\\\": {\\\"type\\\": \\\"string\\\", \\\"enum\\\": [\\\"angry\\\", \\\"frustrated\\\", \\\"neutral\\\", \\\"happy\\\"]}, \\\"summary\\\": {\\\"type\\\": \\\"string\\\", \\\"description\\\": \\\"One sentence, third person.\\\"}, \\\"key_issues\\\": {\\\"type\\\": \\\"array\\\", \\\"items\\\": {\\\"type\\\": \\\"string\\\"}}, \\\"requires_human\\\": {\\\"type\\\": \\\"boolean\\\", \\\"description\\\": \\\"true if money, legal threat, or churn risk is involved\\\"}, \\\"suggested_reply\\\": {\\\"type\\\": \\\"string\\\", \\\"description\\\": \\\"A short, calm reply to send the customer.\\\"}}, \\\"required\\\": [\\\"category\\\", \\\"priority\\\", \\\"sentiment\\\", \\\"summary\\\", \\\"key_issues\\\", \\\"requires_human\\\", \\\"suggested_reply\\\"]}\";\nreturn [{ json: { request: {\n  model: cfg.triageModel,\n  max_tokens: 600,\n  system: 'You triage customer support tickets for a small software company. Be accurate and brief.',\n  messages: [{ role: 'user', content: ticket }],\n  tools: [{ name: 'triage_ticket', description: 'Record the triage of one support ticket.', input_schema: JSON.parse(schema) }],\n  tool_choice: { type: 'tool', name: 'triage_ticket' },\n}}}];\n"
+      },
+      "name": "Build the model request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').item.json.anthropicBase }}/v1/messages",
+        "options": {
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 1500
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}"
+      },
+      "name": "Claude: triage (structured output)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Anthropic API key",
+          "id": "mpCredAnthropic7"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// The model answered by \"calling\" our tool; its arguments are the structured triage.\nconst r = $input.first().json;\nconst call = (r.content || []).find(b => b.type === 'tool_use');\nif (!call) throw new Error('model did not return a tool call: ' + JSON.stringify(r).slice(0, 300));\nreturn [{ json: {\n  ok: true,\n  ticket: $('Webhook: POST /ticket-triage').first().json.body.ticket,\n  triage: call.input,\n  model: r.model,\n  usage: { input_tokens: r.usage?.input_tokens, output_tokens: r.usage?.output_tokens },\n}}];\n"
+      },
+      "name": "Parse triage JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: POST /ticket-triage": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Has a ticket?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has a ticket?": {
+      "main": [
+        [
+          {
+            "node": "Build the model request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the model request": {
+      "main": [
+        [
+          {
+            "node": "Claude: triage (structured output)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: triage (structured output)": {
+      "main": [
+        [
+          {
+            "node": "Parse triage JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse triage JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}

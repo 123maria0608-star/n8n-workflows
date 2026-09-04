@@ -57,6 +57,9 @@ const credentials = [
   { id: "mpCredPg00000005", name: "Postgres (workflow index)", type: "postgres", data: { ...PG, ssl: "disable", allowUnauthorizedCerts: false } },
   // Placeholder. demo.sh creates a real n8n API key after n8n starts and writes it into this credential.
   { id: "mpCredN8nApi0006", name: "n8n API key (self)", type: "httpHeaderAuth", data: { name: "X-N8N-API-KEY", value: "set-by-demo.sh" } },
+  // Real key for workflow 09 (the only workflow that calls a real outside API). Read from the
+  // environment; demo scripts load .env.local if it exists. Never written to the repo.
+  { id: "mpCredAnthropic7", name: "Anthropic API key", type: "httpHeaderAuth", data: { name: "x-api-key", value: process.env.ANTHROPIC_API_KEY || "set-ANTHROPIC_API_KEY-in-.env.local" } },
 ];
 fs.writeFileSync(path.join(OUT, "credentials.json"), JSON.stringify(credentials, null, 2));
 console.log(`credentials.json: ${credentials.length} demo credentials`);

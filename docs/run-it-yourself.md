@@ -86,6 +86,17 @@ credentials with real keys. Nothing else changes. `workflows/*.json` in this
 repo already carries the production URLs; the demo only swaps them at import
 time (`demo/prepare-demo.js`).
 
+## The one-container quick start (docker run)
+
+```bash
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env.local    # only workflow 09 needs it; the file is git-ignored
+bash demo/quickstart-docker.sh
+```
+
+One `docker run`, SQLite inside the container, all nine workflows imported and
+published, then a GET (404 on purpose) and a POST with a support ticket. Read
+`docs/what-dad-did.md` for what every line means.
+
 ## The Docker version (what most teams actually run)
 
 ```bash

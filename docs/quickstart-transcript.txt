@@ -1,0 +1,48 @@
+== 1/4  the container (this is the whole install)
+docker run -d --name n8n -p 5678:5678 -v n8n_data:/home/node/.n8n n8nio/n8n
+NAMES     IMAGE       STATUS          PORTS
+n8n       n8nio/n8n   Up 13 seconds   0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+== 2/4  copy the workflow files in, import, publish, restart
+Successfully imported 7 credentials.
+Importing 9 workflows...
+Deactivating workflow "01 Speed-to-lead: webhook, AI call, CRM tag".
+Deactivating workflow "02 End-of-call write-back: Vapi report to CRM tags, note, email".
+Deactivating workflow "03 Missed-call rescue: Twilio status to SMS, email, log".
+Deactivating workflow "04 Scheduled follow-up: weekday cron with tag-based state".
+Deactivating workflow "05 Error alerting (shared error workflow)".
+Deactivating workflow "06 Chatbot: ask which workflow does what".
+Deactivating workflow "07 Lookup: nearest workflow by cosine similarity (sub-workflow)".
+Deactivating workflow "08 Index workflows into Postgres (pgvector)".
+Deactivating workflow "09 Support ticket triage (structured output)".
+Successfully imported 9 workflows.
+  workflows activated: 0
+== 3/4  a browser sends GET, the node wants POST: this is the 404 you will see if you open the URL
+{"code":404,"message":"This webhook is not registered for GET requests. Did you mean to make a POST request?"}
+== 4/4  the real thing: POST a ticket from the terminal
+curl -X POST http://localhost:5678/webhook/ticket-triage \
+  -H "Content-Type: application/json" \
+  -d '{"ticket": "I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling."}'
+{
+  "ok": true,
+  "ticket": "I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.",
+  "triage": {
+    "category": "billing",
+    "priority": "urgent",
+    "sentiment": "angry",
+    "summary": "Customer reports being double-charged this month and experiencing repeated app logouts, and threatens to cancel if not resolved.",
+    "key_issues": [
+      "Duplicate charge for the current month",
+      "App repeatedly logs user out",
+      "Threat of cancellation"
+    ],
+    "requires_human": true,
+    "suggested_reply": "I'm sorry for the trouble this has caused. We'll immediately look into the duplicate charge and issue a refund if confirmed, and investigate the logout issue right away. Could you share the account email and approximate charge dates so we can resolve this as quickly as possible?"
+  },
+  "model": "claude-sonnet-5",
+  "usage": {
+    "input_tokens": 887,
+    "output_tokens": 335
+  }
+}
+Now open http://localhost:5678 (demo@example.com / Demo-pass-1234), open workflow 09, click Executions.
+Every curl you run shows up there with the webhook input, the raw model reply, and the parsed triage.

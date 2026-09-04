@@ -11,6 +11,7 @@
 #   bash demo/docker-demo.sh down   # stop and delete the containers + volumes
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[ -f .env.local ] && set -a && . ./.env.local && set +a   # ANTHROPIC_API_KEY for workflow 09
 
 export N8N_ENCRYPTION_KEY="${N8N_ENCRYPTION_KEY:-demo-only-not-a-secret-docker}"
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-n8n-demo-pw}"
@@ -44,12 +45,12 @@ dc ps
 say "3/5  import credentials + workflows inside the container, publish, restart"
 dc exec -T n8n n8n import:credentials --input=/import/credentials.json
 dc exec -T n8n n8n import:workflow --separate --input=/import/workflows
-for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008; do
+for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008 mpTicketTriage09; do
   dc exec -T n8n n8n publish:workflow --id=$id >/dev/null
 done
 dc restart n8n >/dev/null
 for i in $(seq 1 120); do curl -sf "http://localhost:$PORT/healthz" >/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do [ "$(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')" -ge 8 ] && break; sleep 1; done
+for i in $(seq 1 60); do [ "$(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')" -ge 9 ] && break; sleep 1; done
 echo "  workflows activated: $(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')"
 
 say "4/5  owner account, API key for workflow 08, mocks + mail sink on the laptop"

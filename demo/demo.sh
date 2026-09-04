@@ -12,6 +12,7 @@
 # Usage:  bash demo/demo.sh          (from the repo root)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[ -f .env.local ] && set -a && . ./.env.local && set +a   # ANTHROPIC_API_KEY for workflow 09
 
 N8N="${N8N:-./node_modules/.bin/n8n}"
 PORT=5678
@@ -53,7 +54,7 @@ echo "  tables: $($PSQL -tAc "select string_agg(tablename, ', ') from pg_tables 
 say "3/6  import credentials + workflows, activate"
 $N8N import:credentials --input=demo/out/build/credentials.json
 $N8N import:workflow --separate --input=demo/out/build/workflows
-for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008; do
+for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008 mpTicketTriage09; do
   $N8N publish:workflow --id=$id
 done
 
@@ -64,7 +65,7 @@ $N8N start > demo/out/n8n.log 2>&1 & PIDS+=($!)
 for i in $(seq 1 90); do curl -sf "http://localhost:$PORT/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://localhost:$PORT/healthz" >/dev/null || { echo "n8n did not start; see demo/out/n8n.log"; exit 1; }
 # healthz answers before webhooks are registered; wait for all five activations.
-for i in $(seq 1 60); do [ "$(grep -c 'Activated workflow' demo/out/n8n.log)" -ge 8 ] && break; sleep 1; done
+for i in $(seq 1 60); do [ "$(grep -c 'Activated workflow' demo/out/n8n.log)" -ge 9 ] && break; sleep 1; done
 grep -c 'Activated workflow' demo/out/n8n.log | sed 's/^/  workflows activated: /' 
 # First-run owner account so the editor at http://localhost:5678 opens without the setup screen.
 curl -s -X POST "http://localhost:$PORT/rest/owner/setup" -H 'content-type: application/json' \

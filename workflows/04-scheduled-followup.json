@@ -168,6 +168,18 @@
               "name": "n8nBase",
               "value": "http://localhost:5678",
               "type": "string"
+            },
+            {
+              "id": "anthropicBase",
+              "name": "anthropicBase",
+              "value": "https://api.anthropic.com",
+              "type": "string"
+            },
+            {
+              "id": "triageModel",
+              "name": "triageModel",
+              "value": "claude-sonnet-5",
+              "type": "string"
             }
           ]
         },

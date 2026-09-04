@@ -37,6 +37,8 @@ CONFIG = {
     "followupWindowDays": 6,
     "paceSeconds": 20,
     "n8nBase": "http://localhost:5678",
+    "anthropicBase": "https://api.anthropic.com",
+    "triageModel": "claude-sonnet-5",
 }
 
 import uuid
@@ -69,10 +71,11 @@ def sticky(content, pos, w=420, h=160):
 # re-importing updates in place instead of creating duplicates.
 IDS = {"01": "mpSpeedToLead001", "02": "mpEndOfCallWb002", "03": "mpMissedCall0003",
        "04": "mpFollowupCron04", "05": "mpErrorAlert0005", "06": "mpChatBot0000006",
-       "07": "mpLookupWf000007", "08": "mpIndexer0000008"}
+       "07": "mpLookupWf000007", "08": "mpIndexer0000008", "09": "mpTicketTriage09"}
 CRED_IDS = {"Vapi API key": "mpCredVapi000001", "GoHighLevel API token": "mpCredGhl0000002",
             "Twilio (basic auth)": "mpCredTwilio0003", "SMTP (Resend)": "mpCredSmtp000004",
-            "Postgres (workflow index)": "mpCredPg00000005", "n8n API key (self)": "mpCredN8nApi0006"}
+            "Postgres (workflow index)": "mpCredPg00000005", "n8n API key (self)": "mpCredN8nApi0006",
+            "Anthropic API key": "mpCredAnthropic7"}
 
 def wf(num, name, nodes, conns, settings=None):
     i = 0
@@ -637,3 +640,73 @@ c = {
     "Log to chat_log": {"main": [[L("Reply")]]},
 }
 dump("06-chatbot-workflow-helper.json", wf("06", "06 Chatbot: ask which workflow does what", n, c))
+
+# ───────────────────────── 09 support ticket triage (structured output) ─────────────────────────
+# The one-webhook demo: POST a support ticket, an LLM returns a fixed JSON shape
+# (category, priority, sentiment, summary, suggested reply), the webhook answers
+# with it. Structured output is forced by giving the model exactly one tool with a
+# JSON schema and requiring it to call that tool.
+TRIAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string", "enum": ["billing", "login", "bug", "feature_request", "cancellation", "other"]},
+        "priority": {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
+        "sentiment": {"type": "string", "enum": ["angry", "frustrated", "neutral", "happy"]},
+        "summary": {"type": "string", "description": "One sentence, third person."},
+        "key_issues": {"type": "array", "items": {"type": "string"}},
+        "requires_human": {"type": "boolean", "description": "true if money, legal threat, or churn risk is involved"},
+        "suggested_reply": {"type": "string", "description": "A short, calm reply to send the customer."},
+    },
+    "required": ["category", "priority", "sentiment", "summary", "key_issues", "requires_human", "suggested_reply"],
+}
+n = [
+    sticky("## Support ticket triage (structured output)\nPOST a ticket to the production webhook:\n\n```\ncurl -X POST http://localhost:5678/webhook/ticket-triage \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"ticket\": \"I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.\"}'\n```\n\nThe model is forced to answer through one tool with a JSON schema, so the shape is guaranteed. Opening the URL in a browser is a GET and returns 404 on purpose: the node only accepts POST.", [0, 0], 620, 260),
+    node("Webhook: POST /ticket-triage", "n8n-nodes-base.webhook", 2, [0, 400],
+         {"httpMethod": "POST", "path": "ticket-triage", "responseMode": "responseNode", "options": {}}),
+    config_node([220, 400], keys=["anthropicBase", "triageModel"]),
+    IF("Has a ticket?", [440, 400], [cond("t", "={{ $json.body.ticket }}", "notEmpty", single=True)]),
+    node("Respond 400", "n8n-nodes-base.respondToWebhook", 1.1, [660, 560],
+         {"respondWith": "json", "responseBody": "={{ { ok: false, error: 'send JSON like {\"ticket\": \"...\"}' } }}", "options": {"responseCode": 400}}),
+    node("Build the model request", "n8n-nodes-base.code", 2, [660, 300], {"jsCode": r"""
+// Build the whole API request here rather than inside an expression: a JSON
+// schema contains "}}" which n8n would read as the end of an expression.
+const cfg = $('Config').first().json;
+const ticket = $('Webhook: POST /ticket-triage').first().json.body.ticket;
+const schema = """ + json.dumps(json.dumps(TRIAGE_SCHEMA)) + r""";
+return [{ json: { request: {
+  model: cfg.triageModel,
+  max_tokens: 600,
+  system: 'You triage customer support tickets for a small software company. Be accurate and brief.',
+  messages: [{ role: 'user', content: ticket }],
+  tools: [{ name: 'triage_ticket', description: 'Record the triage of one support ticket.', input_schema: JSON.parse(schema) }],
+  tool_choice: { type: 'tool', name: 'triage_ticket' },
+}}}];
+"""}),
+    http("Claude: triage (structured output)", [880, 300], "POST", "={{ " + C("anthropicBase") + " }}/v1/messages",
+         body="={{ JSON.stringify($json.request) }}",
+         cred=("httpHeaderAuth", "Anthropic API key"), headers={"anthropic-version": "2023-06-01"}),
+    node("Parse triage JSON", "n8n-nodes-base.code", 2, [1100, 300], {"jsCode": r"""
+// The model answered by "calling" our tool; its arguments are the structured triage.
+const r = $input.first().json;
+const call = (r.content || []).find(b => b.type === 'tool_use');
+if (!call) throw new Error('model did not return a tool call: ' + JSON.stringify(r).slice(0, 300));
+return [{ json: {
+  ok: true,
+  ticket: $('Webhook: POST /ticket-triage').first().json.body.ticket,
+  triage: call.input,
+  model: r.model,
+  usage: { input_tokens: r.usage?.input_tokens, output_tokens: r.usage?.output_tokens },
+}}];
+"""}),
+    node("Respond to Webhook", "n8n-nodes-base.respondToWebhook", 1.1, [1320, 300],
+         {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}}),
+]
+c = {
+    "Webhook: POST /ticket-triage": {"main": [[L("Config")]]},
+    "Config": {"main": [[L("Has a ticket?")]]},
+    "Has a ticket?": {"main": [[L("Build the model request")], [L("Respond 400")]]},
+    "Build the model request": {"main": [[L("Claude: triage (structured output)")]]},
+    "Claude: triage (structured output)": {"main": [[L("Parse triage JSON")]]},
+    "Parse triage JSON": {"main": [[L("Respond to Webhook")]]},
+}
+dump("09-support-ticket-triage.json", wf("09", "09 Support ticket triage (structured output)", n, c))
