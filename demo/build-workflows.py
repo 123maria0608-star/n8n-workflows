@@ -39,6 +39,7 @@ CONFIG = {
     "n8nBase": "http://localhost:5678",
     "anthropicBase": "https://api.anthropic.com",
     "triageModel": "claude-sonnet-5",
+    "docsDir": "/data/pdfs",
 }
 
 import uuid
@@ -71,7 +72,8 @@ def sticky(content, pos, w=420, h=160):
 # re-importing updates in place instead of creating duplicates.
 IDS = {"01": "mpSpeedToLead001", "02": "mpEndOfCallWb002", "03": "mpMissedCall0003",
        "04": "mpFollowupCron04", "05": "mpErrorAlert0005", "06": "mpChatBot0000006",
-       "07": "mpLookupWf000007", "08": "mpIndexer0000008", "09": "mpTicketTriage09"}
+       "07": "mpLookupWf000007", "08": "mpIndexer0000008", "09": "mpTicketTriage09",
+       "10": "mpDocsIngest0010", "11": "mpDocsSearch0011", "12": "mpDocsFile00012", "13": "mpAppPage000013"}
 CRED_IDS = {"Vapi API key": "mpCredVapi000001", "GoHighLevel API token": "mpCredGhl0000002",
             "Twilio (basic auth)": "mpCredTwilio0003", "SMTP (Resend)": "mpCredSmtp000004",
             "Postgres (workflow index)": "mpCredPg00000005", "n8n API key (self)": "mpCredN8nApi0006",
@@ -710,3 +712,165 @@ c = {
     "Parse triage JSON": {"main": [[L("Respond to Webhook")]]},
 }
 dump("09-support-ticket-triage.json", wf("09", "09 Support ticket triage (structured output)", n, c))
+
+# ───────────────────────── 10 ingest PDFs into Postgres ─────────────────────────
+n = [
+    sticky("## Index the PDFs\nReads every PDF in the docs folder, pulls the text out, splits it into chunks of about 1,200 characters, and upserts each chunk into `docs`. Postgres keeps a full-text index on the chunk text, so workflow 11 can search it with SQL and no AI.\n\nRun it again after dropping a new PDF in the folder. Re-runs update in place.", [0, 40], 600, 170),
+    node("Run now (manual)", "n8n-nodes-base.manualTrigger", 1, [0, 300], {}),
+    node("Nightly 02:30", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 480],
+         {"rule": {"interval": [{"field": "cronExpression", "expression": "30 2 * * *"}]}}),
+    config_node([220, 300], keys=["docsDir"]),
+    node("Read every PDF in the folder", "n8n-nodes-base.readWriteFile", 1.1, [440, 300],
+         {"fileSelector": "={{ $json.docsDir }}/*.pdf", "options": {}}),
+    node("Name the file", "n8n-nodes-base.code", 2, [660, 300], {"jsCode": r"""
+// Extract from File drops the binary, so remember the file name in json first.
+return $input.all().map(i => ({ json: { fileName: i.binary.data.fileName }, binary: i.binary }));
+"""}),
+    node("Extract text from PDF", "n8n-nodes-base.extractFromFile", 1.1, [880, 300],
+         {"operation": "pdf", "options": {}}),
+    node("Split into chunks", "n8n-nodes-base.code", 2, [1100, 300], {"jsCode": r"""
+// One item per chunk. ~1,200 characters, cut at a sentence or line break when possible.
+const out = [];
+const items = $input.all();
+const names = $('Name the file').all().map(i => i.json.fileName);
+for (let k = 0; k < items.length; k++) {
+  const item = items[k];
+  const name = names[k] || item.json.fileName || 'unknown.pdf';
+  const text = String(item.json.text || '').replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const chunks = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + 1200, text.length);
+    if (end < text.length) {
+      const cut = Math.max(text.lastIndexOf('\n\n', end), text.lastIndexOf('. ', end));
+      if (cut > i + 400) end = cut + 1;
+    }
+    chunks.push(text.slice(i, end).trim());
+    i = end;
+  }
+  chunks.forEach((c, n) => out.push({ json: { name, chunk_no: n + 1, n_chunks: chunks.length, content: c, pages: item.json.numpages } }));
+}
+return out;
+"""}),
+    pg_query("Upsert chunk into docs", [1320, 300],
+             "INSERT INTO docs (name, chunk_no, n_chunks, content, indexed_at)\nVALUES ($1, $2, $3, $4, now())\nON CONFLICT (name, chunk_no) DO UPDATE SET n_chunks = EXCLUDED.n_chunks, content = EXCLUDED.content, indexed_at = now()\nRETURNING name, chunk_no;",
+             "={{ [$json.name, $json.chunk_no, $json.n_chunks, $json.content] }}"),
+    node("Summary", "n8n-nodes-base.code", 2, [1540, 300], {"jsCode": r"""
+const rows = $input.all().map(i => i.json);
+const byDoc = {};
+for (const r of rows) byDoc[r.name] = (byDoc[r.name] || 0) + 1;
+return [{ json: { chunks: rows.length, documents: byDoc } }];
+"""}),
+]
+c = {
+    "Run now (manual)": {"main": [[L("Config")]]},
+    "Nightly 02:30": {"main": [[L("Config")]]},
+    "Config": {"main": [[L("Read every PDF in the folder")]]},
+    "Read every PDF in the folder": {"main": [[L("Name the file")]]},
+    "Name the file": {"main": [[L("Extract text from PDF")]]},
+    "Extract text from PDF": {"main": [[L("Split into chunks")]]},
+    "Split into chunks": {"main": [[L("Upsert chunk into docs")]]},
+    "Upsert chunk into docs": {"main": [[L("Summary")]]},
+}
+dump("10-docs-ingest-pdfs.json", wf("10", "10 Docs: index PDFs into Postgres full-text search", n, c))
+
+# ───────────────────────── 11 deterministic search API ─────────────────────────
+KEYWORD_SQL = """WITH q AS (SELECT websearch_to_tsquery('english', $1) AS tsq)
+SELECT d.name, d.chunk_no, d.n_chunks,
+       ts_rank_cd(d.tsv, q.tsq) AS rank,
+       ts_headline('english', d.content, q.tsq,
+         'StartSel=<mark>, StopSel=</mark>, MaxFragments=2, MinWords=6, MaxWords=26, FragmentDelimiter= … ') AS snippet
+FROM docs d, q
+WHERE d.tsv @@ q.tsq
+ORDER BY rank DESC, d.name, d.chunk_no
+LIMIT 20;"""
+EXACT_SQL = """SELECT name, chunk_no, n_chunks, NULL::real AS rank,
+       substr(content, GREATEST(1, position(lower($1) in lower(content)) - 110), 260) AS snippet
+FROM docs
+WHERE content ILIKE '%' || $1 || '%'
+ORDER BY name, chunk_no
+LIMIT 20;"""
+n = [
+    sticky("## Deterministic search\nPOST `{ \"q\": \"sticky sessions\", \"mode\": \"keyword\" | \"exact\" }`.\n\nKeyword mode: Postgres full-text search. `websearch_to_tsquery` understands quotes and minus, `ts_rank_cd` orders, `ts_headline` builds the highlighted snippet.\nExact mode: `ILIKE '%phrase%'`, the words in that order, case-insensitive.\n\nNo model, no randomness: the same input always returns the same rows.", [0, 40], 600, 190),
+    node("Webhook: POST /docs/search", "n8n-nodes-base.webhook", 2, [0, 340],
+         {"httpMethod": "POST", "path": "docs/search", "responseMode": "responseNode", "options": {}}),
+    node("Validate", "n8n-nodes-base.code", 2, [220, 340], {"jsCode": r"""
+const b = $input.first().json.body || {};
+const q = String(b.q || '').trim().slice(0, 200);
+const mode = b.mode === 'exact' ? 'exact' : 'keyword';
+if (!q) throw new Error('q is required');
+return [{ json: { q, mode } }];
+"""}),
+    IF("Exact phrase?", [440, 340], [cond("m", "={{ $json.mode }}", "equals", "exact")]),
+    pg_query("Exact: ILIKE", [660, 240], EXACT_SQL, "={{ [$json.q] }}"),
+    pg_query("Keyword: full-text search", [660, 440], KEYWORD_SQL, "={{ [$json.q] }}"),
+    node("Shape results", "n8n-nodes-base.code", 2, [880, 340], {"jsCode": r"""
+const v = $('Validate').first().json;
+const rows = $input.all().map(i => i.json).filter(r => r.name);
+const docs = new Set(rows.map(r => r.name)).size;
+return [{ json: { q: v.q, mode: v.mode, docs, results: rows,
+  sql: v.mode === 'exact' ? "content ILIKE '%' || $1 || '%'" : "tsv @@ websearch_to_tsquery('english', $1) ORDER BY ts_rank_cd" } }];
+"""}),
+    node("Respond JSON", "n8n-nodes-base.respondToWebhook", 1.1, [1100, 340],
+         {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}}),
+]
+for x in n:
+    if x["name"] in ("Exact: ILIKE", "Keyword: full-text search"):
+        x["alwaysOutputData"] = True     # zero hits must still reach "Shape results"
+c = {
+    "Webhook: POST /docs/search": {"main": [[L("Validate")]]},
+    "Validate": {"main": [[L("Exact phrase?")]]},
+    "Exact phrase?": {"main": [[L("Exact: ILIKE")], [L("Keyword: full-text search")]]},
+    "Exact: ILIKE": {"main": [[L("Shape results")]]},
+    "Keyword: full-text search": {"main": [[L("Shape results")]]},
+    "Shape results": {"main": [[L("Respond JSON")]]},
+}
+dump("11-docs-search-api.json", wf("11", "11 Docs: deterministic search API (Postgres full-text)", n, c))
+
+# ───────────────────────── 12 serve a PDF ─────────────────────────
+n = [
+    sticky("## Serve a PDF\n`GET /docs/file?name=how-this-works.pdf`\n\nThe name must be a plain file name (no slashes) and must exist in the index. Then the file is read from the docs folder and returned as `application/pdf`, inline, so the browser shows the whole document.", [0, 40], 560, 150),
+    node("Webhook: GET /docs/file", "n8n-nodes-base.webhook", 2, [0, 300],
+         {"httpMethod": "GET", "path": "docs/file", "responseMode": "responseNode", "options": {}}),
+    config_node([220, 300], keys=["docsDir"]),
+    node("Check the name", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": r"""
+const name = String($input.first().json.query?.name || '');
+const ok = /^[A-Za-z0-9._ -]+\.pdf$/.test(name) && !name.includes('..');
+return [{ json: { name, ok, path: $('Config').first().json.docsDir + '/' + name } }];
+"""}),
+    pg_query("Is it in the index?", [660, 300], "SELECT count(*)::int AS n FROM docs WHERE name = $1;", "={{ [$json.name] }}"),
+    IF("Known file?", [880, 300], [
+        cond("ok", "={{ $('Check the name').item.json.ok }}", "true", typ="boolean", single=True),
+        cond("n", "={{ $json.n }}", "gt", 0, typ="number")]),
+    node("Read the PDF", "n8n-nodes-base.readWriteFile", 1.1, [1100, 200],
+         {"fileSelector": "={{ $('Check the name').item.json.path }}", "options": {}}),
+    node("Respond with the PDF", "n8n-nodes-base.respondToWebhook", 1.1, [1320, 200],
+         {"respondWith": "binary", "responseDataSource": "automatically",
+          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "application/pdf"}, {"name": "Content-Disposition", "value": "inline"}]}}}),
+    node("Respond 404", "n8n-nodes-base.respondToWebhook", 1.1, [1100, 440],
+         {"respondWith": "json", "responseBody": "={{ { error: 'no such document in the index' } }}", "options": {"responseCode": 404}}),
+]
+c = {
+    "Webhook: GET /docs/file": {"main": [[L("Config")]]},
+    "Config": {"main": [[L("Check the name")]]},
+    "Check the name": {"main": [[L("Is it in the index?")]]},
+    "Is it in the index?": {"main": [[L("Known file?")]]},
+    "Known file?": {"main": [[L("Read the PDF")], [L("Respond 404")]]},
+    "Read the PDF": {"main": [[L("Respond with the PDF")]]},
+}
+dump("12-docs-serve-pdf.json", wf("12", "12 Docs: serve a PDF from the folder", n, c))
+
+# ───────────────────────── 13 the HTML page ─────────────────────────
+APP_HTML = (pathlib.Path(__file__).resolve().parent / "app.html").read_text()
+chat_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "n8n-workflows/When chat message received"))
+APP_HTML = APP_HTML.replace("CHAT_WEBHOOK_ID", chat_id)
+n = [
+    sticky("## The web page\n`GET /webhook/app` returns an HTML page. Its buttons call the other webhooks on this instance: /docs/search, /docs/file, /ticket-triage, and the chat trigger.\n\nThe HTML lives in the Respond node as a plain string (not an expression), so n8n serves it as-is with `Content-Type: text/html`.", [0, 40], 560, 160),
+    node("Webhook: GET /app", "n8n-nodes-base.webhook", 2, [0, 300],
+         {"httpMethod": "GET", "path": "app", "responseMode": "responseNode", "options": {}}),
+    node("Respond with HTML", "n8n-nodes-base.respondToWebhook", 1.1, [220, 300],
+         {"respondWith": "text", "responseBody": APP_HTML,
+          "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "text/html; charset=utf-8"}]}}}),
+]
+c = {"Webhook: GET /app": {"main": [[L("Respond with HTML")]]}}
+dump("13-app-page.json", wf("13", "13 App: the HTML page (served by a webhook)", n, c))

@@ -26,6 +26,7 @@ export N8N_PORT=$PORT N8N_RUNNERS_ENABLED=true N8N_DIAGNOSTICS_ENABLED=false
 export N8N_LOG_LEVEL=info N8N_SECURE_COOKIE=false N8N_ENCRYPTION_KEY=demo-only-not-a-secret
 export N8N_PERSONALIZATION_ENABLED=false N8N_VERSION_NOTIFICATIONS_ENABLED=false
 export MAIL_DIR="$PWD/demo/out/mail"
+export N8N_RESTRICT_FILE_ACCESS_TO="$PWD/demo/pdfs" DEMO_DOCS_DIR="$PWD/demo/pdfs"
 # `n8n execute` (CLI) runs beside the server, so its task-runner broker needs its own port.
 EXEC="env N8N_RUNNERS_BROKER_PORT=5680 $N8N execute"
 
@@ -54,7 +55,7 @@ echo "  tables: $($PSQL -tAc "select string_agg(tablename, ', ') from pg_tables 
 say "3/6  import credentials + workflows, activate"
 $N8N import:credentials --input=demo/out/build/credentials.json
 $N8N import:workflow --separate --input=demo/out/build/workflows
-for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008 mpTicketTriage09; do
+for id in $(node -e 'for (const f of require("fs").readdirSync("workflows")) if (f.endsWith(".json")) console.log(require("./workflows/"+f).id)'); do
   $N8N publish:workflow --id=$id
 done
 
@@ -65,7 +66,7 @@ $N8N start > demo/out/n8n.log 2>&1 & PIDS+=($!)
 for i in $(seq 1 90); do curl -sf "http://localhost:$PORT/healthz" >/dev/null && break; sleep 1; done
 curl -sf "http://localhost:$PORT/healthz" >/dev/null || { echo "n8n did not start; see demo/out/n8n.log"; exit 1; }
 # healthz answers before webhooks are registered; wait for all five activations.
-for i in $(seq 1 60); do [ "$(grep -c 'Activated workflow' demo/out/n8n.log)" -ge 9 ] && break; sleep 1; done
+for i in $(seq 1 60); do [ "$(grep -c 'Activated workflow' demo/out/n8n.log)" -ge 13 ] && break; sleep 1; done
 grep -c 'Activated workflow' demo/out/n8n.log | sed 's/^/  workflows activated: /' 
 # First-run owner account so the editor at http://localhost:5678 opens without the setup screen.
 curl -s -X POST "http://localhost:$PORT/rest/owner/setup" -H 'content-type: application/json' \
@@ -169,6 +170,11 @@ echo
 echo "What Postgres now holds (chat_log joined to workflow_index):"
 $PSQL -c "select c.id, left(c.question,45) as question, w.name as matched, round(c.similarity::numeric,3) as sim, c.asked_at::time(0) from chat_log c left join workflow_index w on w.id = c.matched_workflow_id order by c.id"
 echo "Chat page for a human: http://localhost:$PORT/webhook/$CHAT_ID/chat  (while n8n is running)"
+echo
+echo "PDF search (workflow 10 indexes demo/pdfs, 11 searches with Postgres full-text, 12 serves the file, 13 is the page):"
+$EXEC --id mpDocsIngest0010 2>&1 | grep -E '"chunks"' | sed 's/^ */  /' || true
+curl -s -X POST "http://localhost:$PORT/webhook/docs/search" -H 'content-type: application/json' -d '{"q":"sticky sessions","mode":"exact"}' | node -e 'process.stdin.on("data",d=>{const j=JSON.parse(d);console.log(`  "sticky sessions" exact: ${j.results.length} hits in ${j.docs} PDFs; first: ${j.results[0]?.name} chunk ${j.results[0]?.chunk_no}`)})'
+echo "  page: http://localhost:$PORT/webhook/app"
 
 echo
 echo "Done. Executions, with every node's input and output, are in demo/out/n8n/.n8n/database.sqlite"

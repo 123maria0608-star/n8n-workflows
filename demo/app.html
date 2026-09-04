@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflow console</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#666; --line:#e3e3e3; --bg:#f6f6f4; --card:#fff; --accent:#ff6d1f; --ok:#1a7f37; --bad:#b42318; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 -apple-system, "Segoe UI", Inter, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:18px 28px; background:#111; color:#fff; display:flex; align-items:baseline; gap:18px; }
+  header h1 { margin:0; font-size:18px; font-weight:600; }
+  header span { color:#aaa; font-size:13px; }
+  nav { display:flex; gap:4px; padding:12px 28px 0; }
+  nav button { border:1px solid var(--line); border-bottom:none; background:#eee; padding:10px 16px; border-radius:8px 8px 0 0; cursor:pointer; font:inherit; }
+  nav button.on { background:var(--card); font-weight:600; }
+  main { padding:20px 28px 40px; }
+  section { display:none; } section.on { display:block; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  input[type=text], textarea { flex:1; min-width:280px; font:inherit; padding:10px 12px; border:1px solid #bbb; border-radius:8px; background:#fff; }
+  textarea { min-height:90px; width:100%; }
+  button.go { font:inherit; padding:10px 18px; border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; font-weight:600; }
+  button.go[disabled] { opacity:.5; }
+  label.mode { font-size:14px; color:var(--muted); }
+  .split { display:grid; grid-template-columns: 1fr 1fr; gap:18px; margin-top:16px; }
+  @media (max-width:900px){ .split { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+  .card h3 { margin:0 0 4px; font-size:15px; }
+  .card .meta { color:var(--muted); font-size:13px; }
+  .card p { margin:8px 0 0; }
+  mark { background:#fff2a8; padding:0 2px; }
+  iframe { width:100%; height:78vh; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .hint { color:var(--muted); font-size:13px; margin:6px 0 0; }
+  .kv { display:grid; grid-template-columns: 150px 1fr; gap:6px 12px; font-size:14px; }
+  .kv b { color:var(--muted); font-weight:500; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; background:#eee; margin-right:6px; }
+  .pill.urgent, .pill.high, .pill.angry { background:#fde2e1; color:var(--bad); }
+  .pill.low, .pill.neutral, .pill.happy { background:#e3f5e8; color:var(--ok); }
+  pre { background:#111; color:#ddd; padding:12px; border-radius:8px; overflow:auto; font-size:12.5px; }
+  .status { font-size:13px; color:var(--muted); min-height:18px; margin-top:6px; }
+  .err { color:var(--bad); }
+</style>
+</head>
+<body>
+<header><h1>Workflow console</h1><span>every button on this page is an n8n webhook</span></header>
+<nav>
+  <button class="on" data-tab="search">Search the PDFs</button>
+  <button data-tab="triage">Triage a ticket</button>
+  <button data-tab="ask">Ask which workflow</button>
+  <button data-tab="how">How this page works</button>
+</nav>
+<main>
+
+<section id="search" class="on">
+  <div class="row">
+    <input type="text" id="q" placeholder='try: sticky sessions   or   "queue mode"   or   webhook -cron' autofocus>
+    <label class="mode"><input type="radio" name="mode" value="keyword" checked> keyword, ranked</label>
+    <label class="mode"><input type="radio" name="mode" value="exact"> exact phrase</label>
+    <button class="go" id="goSearch">Search</button>
+  </div>
+  <p class="hint">Deterministic: Postgres full-text search over every page of every PDF in the folder. Same query, same results, no model involved. Quotes force a phrase, a leading minus excludes a word.</p>
+  <div class="status" id="sStatus"></div>
+  <div class="split">
+    <div id="results"></div>
+    <div><iframe id="pdf" title="PDF"></iframe><p class="hint" id="pdfName">Click a result to open the whole PDF here.</p></div>
+  </div>
+</section>
+
+<section id="triage">
+  <textarea id="ticket">I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.</textarea>
+  <div class="row" style="margin-top:8px"><button class="go" id="goTriage">Triage with Claude</button><span class="hint">POST /webhook/ticket-triage, structured output through a JSON schema</span></div>
+  <div class="status" id="tStatus"></div>
+  <div id="triageOut"></div>
+</section>
+
+<section id="ask">
+  <div class="row"><input type="text" id="askQ" placeholder="what happens when a customer calls and nobody answers?"><button class="go" id="goAsk">Ask</button></div>
+  <p class="hint">Chat trigger → sub-workflow → cosine search in pgvector → answer logged to Postgres.</p>
+  <div class="status" id="aStatus"></div>
+  <div id="askOut"></div>
+</section>
+
+<section id="how">
+  <div class="card">
+    <h3>This page is served by n8n</h3>
+    <p>A Webhook node answers <code>GET /webhook/app</code> with this HTML. There is no separate web server.</p>
+  </div>
+  <div class="card">
+    <h3>Search</h3>
+    <p>The page POSTs <code>{ q, mode }</code> to <code>/webhook/docs/search</code>. That workflow runs one SQL statement against Postgres: keyword mode uses <code>websearch_to_tsquery</code>, <code>ts_rank_cd</code> and <code>ts_headline</code>; exact mode uses <code>ILIKE</code>. The PDFs were indexed by workflow 10 (Read files → Extract from File → chunk → INSERT).</p>
+  </div>
+  <div class="card">
+    <h3>Open PDF</h3>
+    <p><code>GET /webhook/docs/file?name=x.pdf</code> checks the name against the index, reads the file from disk, and responds with the binary and <code>Content-Type: application/pdf</code>, so the browser renders it in the frame.</p>
+  </div>
+  <div class="card">
+    <h3>Triage and Ask</h3>
+    <p>Same webhooks you can call with curl. The page just does the POST for you and renders the JSON.</p>
+  </div>
+</section>
+</main>
+
+<script>
+const base = location.origin + '/webhook';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+});
+
+async function post(path, body) {
+  const r = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${data.message || data.error || text.slice(0, 200)}`);
+  return data;
+}
+
+function highlight(snippet, q) {
+  if (!q) return esc(snippet);
+  const safe = esc(snippet);
+  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return safe.replace(re, m => `<mark>${m}</mark>`);
+}
+
+async function search() {
+  const q = $('#q').value.trim(); if (!q) return;
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  $('#sStatus').textContent = 'searching…'; $('#results').innerHTML = '';
+  const t0 = performance.now();
+  try {
+    const d = await post('/docs/search', { q, mode });
+    const ms = Math.round(performance.now() - t0);
+    $('#sStatus').textContent = `${d.results.length} hit${d.results.length === 1 ? '' : 's'} in ${d.docs} document${d.docs === 1 ? '' : 's'} · ${mode} · ${ms} ms · ${esc(d.sql)}`;
+    if (!d.results.length) { $('#results').innerHTML = '<div class="card">Nothing matched. Exact mode needs the words in that order; keyword mode needs each word to appear.</div>'; return; }
+    for (const r of d.results) {
+      const card = document.createElement('div'); card.className = 'card';
+      const snippet = mode === 'exact' ? highlight(r.snippet, q) : r.snippet;   // keyword mode is already marked by Postgres
+      card.innerHTML = `<h3>${esc(r.name)}</h3><div class="meta">chunk ${r.chunk_no} of ${r.n_chunks}${r.rank ? ` · rank ${Number(r.rank).toFixed(3)}` : ''}</div><p>${snippet}</p><p><a href="#" data-name="${esc(r.name)}">Open the PDF</a></p>`;
+      card.querySelector('a').onclick = (e) => { e.preventDefault(); openPdf(r.name); };
+      $('#results').appendChild(card);
+    }
+  } catch (e) { $('#sStatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+function openPdf(name) {
+  $('#pdf').src = `${base}/docs/file?name=${encodeURIComponent(name)}`;
+  $('#pdfName').textContent = name;
+}
+$('#goSearch').onclick = search;
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+$('#goTriage').onclick = async () => {
+  const ticket = $('#ticket').value.trim(); if (!ticket) return;
+  $('#tStatus').textContent = 'asking Claude…'; $('#triageOut').innerHTML = ''; $('#goTriage').disabled = true;
+  try {
+    const d = await post('/ticket-triage', { ticket });
+    const t = d.triage;
+    $('#tStatus').textContent = `${d.model} · ${d.usage.input_tokens} tokens in, ${d.usage.output_tokens} out`;
+    $('#triageOut').innerHTML = `<div class="card">
+      <div><span class="pill">${esc(t.category)}</span><span class="pill ${esc(t.priority)}">${esc(t.priority)}</span><span class="pill ${esc(t.sentiment)}">${esc(t.sentiment)}</span>${t.requires_human ? '<span class="pill urgent">needs a human</span>' : ''}</div>
+      <div class="kv" style="margin-top:10px"><b>summary</b><span>${esc(t.summary)}</span><b>key issues</b><span>${(t.key_issues || []).map(esc).join('<br>')}</span><b>suggested reply</b><span>${esc(t.suggested_reply)}</span></div>
+      <details style="margin-top:10px"><summary class="hint">raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details></div>`;
+  } catch (e) { $('#tStatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  $('#goTriage').disabled = false;
+};
+
+$('#goAsk').onclick = async () => {
+  const q = $('#askQ').value.trim(); if (!q) return;
+  $('#aStatus').textContent = 'asking…'; $('#askOut').innerHTML = '';
+  try {
+    const d = await post('/CHAT_WEBHOOK_ID/chat', { sessionId: 'console-' + Date.now(), action: 'sendMessage', chatInput: q });
+    $('#aStatus').textContent = '';
+    $('#askOut').innerHTML = `<div class="card"><pre style="background:#fff;color:#1a1a1a;white-space:pre-wrap;padding:0">${esc(d.output || JSON.stringify(d))}</pre></div>`;
+  } catch (e) { $('#aStatus').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+$('#askQ').addEventListener('keydown', e => { if (e.key === 'Enter') $('#goAsk').onclick(); });
+</script>
+</body>
+</html>

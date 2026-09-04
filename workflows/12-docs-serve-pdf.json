@@ -1,0 +1,271 @@
+{
+  "id": "mpDocsFile00012",
+  "name": "12 Docs: serve a PDF from the folder",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Serve a PDF\n`GET /docs/file?name=how-this-works.pdf`\n\nThe name must be a plain file name (no slashes) and must exist in the index. Then the file is read from the docs folder and returned as `application/pdf`, inline, so the browser shows the whole document.",
+        "width": 560,
+        "height": 150
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "docs/file",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook: GET /docs/file",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "cf7c08d6-ca76-5137-9c97-2b9940345dda"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "docsDir",
+              "name": "docsDir",
+              "value": "/data/pdfs",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst name = String($input.first().json.query?.name || '');\nconst ok = /^[A-Za-z0-9._ -]+\\.pdf$/.test(name) && !name.includes('..');\nreturn [{ json: { name, ok, path: $('Config').first().json.docsDir + '/' + name } }];\n"
+      },
+      "name": "Check the name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT count(*)::int AS n FROM docs WHERE name = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.name] }}"
+        }
+      },
+      "name": "Is it in the index?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres (workflow index)",
+          "id": "mpCredPg00000005"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $('Check the name').item.json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "n",
+              "leftValue": "={{ $json.n }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Known file?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Check the name').item.json.path }}",
+        "options": {}
+      },
+      "name": "Read the PDF",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "automatically",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/pdf"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "inline"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Respond with the PDF",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: 'no such document in the index' } }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "name": "Respond 404",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: GET /docs/file": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check the name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the name": {
+      "main": [
+        [
+          {
+            "node": "Is it in the index?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it in the index?": {
+      "main": [
+        [
+          {
+            "node": "Known file?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known file?": {
+      "main": [
+        [
+          {
+            "node": "Read the PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 404",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the PDF": {
+      "main": [
+        [
+          {
+            "node": "Respond with the PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}

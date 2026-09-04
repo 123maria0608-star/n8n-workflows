@@ -180,6 +180,12 @@
               "name": "triageModel",
               "value": "claude-sonnet-5",
               "type": "string"
+            },
+            {
+              "id": "docsDir",
+              "name": "docsDir",
+              "value": "/data/pdfs",
+              "type": "string"
             }
           ]
         },

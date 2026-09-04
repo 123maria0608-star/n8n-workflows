@@ -33,6 +33,7 @@ const overrides = {
   slackWebhookUrl: "",
   paceSeconds: 1,
   n8nBase: process.env.DEMO_N8N_BASE || "http://localhost:5678",
+  docsDir: process.env.DEMO_DOCS_DIR || "/data/pdfs",
 };
 
 for (const f of fs.readdirSync(SRC).filter((x) => x.endsWith(".json"))) {

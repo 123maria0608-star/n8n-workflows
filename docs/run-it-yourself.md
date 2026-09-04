@@ -93,9 +93,26 @@ echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env.local    # only workflow 09 needs it;
 bash demo/quickstart-docker.sh
 ```
 
-One `docker run`, SQLite inside the container, all nine workflows imported and
-published, then a GET (404 on purpose) and a POST with a support ticket. Read
-`docs/what-dad-did.md` for what every line means.
+Two `docker run`s (n8n with SQLite inside, and a Postgres for search), all
+thirteen workflows imported and published, a GET (404 on purpose), a POST with a
+support ticket, the PDFs indexed, and the page opened at
+`http://localhost:5678/webhook/app`. Read `docs/what-dad-did.md` for what every
+line means.
+
+## The web page
+
+`http://localhost:5678/webhook/app` while any of the three demos is running.
+
+- **Search the PDFs**: type words, pick *keyword* (ranked, Google-style quotes and
+  minus) or *exact phrase*. Results show the file, the chunk, and a snippet with
+  the hits marked. Click "Open the PDF" and the whole document renders on the
+  right. Drop more PDFs into `demo/pdfs/` and run workflow 10 to index them.
+- **Triage a ticket**: the same webhook as the curl, with a form.
+- **Ask which workflow**: the chatbot.
+- **How this page works**: what each button calls.
+
+Everything the page does is a webhook on this n8n; open Executions and you will
+see one row per click.
 
 ## The Docker version (what most teams actually run)
 

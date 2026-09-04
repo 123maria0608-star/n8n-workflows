@@ -1,21 +1,19 @@
-== 1/4  the container (this is the whole install)
+== 1/4  the containers: n8n (this is the whole install) and a Postgres for search
 docker run -d --name n8n -p 5678:5678 -v n8n_data:/home/node/.n8n n8nio/n8n
-NAMES     IMAGE       STATUS          PORTS
-n8n       n8nio/n8n   Up 13 seconds   0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+NOTICE:  extension "vector" already exists, skipping
+NOTICE:  relation "workflow_index" already exists, skipping
+NOTICE:  relation "chat_log" already exists, skipping
+NOTICE:  relation "chat_log_session_idx" already exists, skipping
+NOTICE:  relation "docs" already exists, skipping
+NOTICE:  relation "docs_tsv_idx" already exists, skipping
+NAMES          IMAGE                    STATUS          PORTS
+n8n            n8nio/n8n                Up 15 seconds   0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+n8n-postgres   pgvector/pgvector:pg17   Up 15 seconds   5432/tcp
 == 2/4  copy the workflow files in, import, publish, restart
 Successfully imported 7 credentials.
-Importing 9 workflows...
-Deactivating workflow "01 Speed-to-lead: webhook, AI call, CRM tag".
-Deactivating workflow "02 End-of-call write-back: Vapi report to CRM tags, note, email".
-Deactivating workflow "03 Missed-call rescue: Twilio status to SMS, email, log".
-Deactivating workflow "04 Scheduled follow-up: weekday cron with tag-based state".
-Deactivating workflow "05 Error alerting (shared error workflow)".
-Deactivating workflow "06 Chatbot: ask which workflow does what".
-Deactivating workflow "07 Lookup: nearest workflow by cosine similarity (sub-workflow)".
-Deactivating workflow "08 Index workflows into Postgres (pgvector)".
-Deactivating workflow "09 Support ticket triage (structured output)".
-Successfully imported 9 workflows.
-  workflows activated: 0
+Importing 13 workflows...
+Successfully imported 13 workflows.
+  webhooks live
 == 3/4  a browser sends GET, the node wants POST: this is the 404 you will see if you open the URL
 {"code":404,"message":"This webhook is not registered for GET requests. Did you mean to make a POST request?"}
 == 4/4  the real thing: POST a ticket from the terminal
@@ -27,22 +25,26 @@ curl -X POST http://localhost:5678/webhook/ticket-triage \
   "ticket": "I was charged twice this month and your app keeps logging me out. Fix this or I am cancelling.",
   "triage": {
     "category": "billing",
-    "priority": "urgent",
+    "priority": "high",
     "sentiment": "angry",
-    "summary": "Customer reports being double-charged this month and experiencing repeated app logouts, and threatens to cancel if not resolved.",
+    "summary": "Customer reports being double-charged this month and experiencing repeated app logouts, threatening cancellation if unresolved.",
     "key_issues": [
-      "Duplicate charge for the current month",
+      "Double billing charge this month",
       "App repeatedly logs user out",
       "Threat of cancellation"
     ],
     "requires_human": true,
-    "suggested_reply": "I'm sorry for the trouble this has caused. We'll immediately look into the duplicate charge and issue a refund if confirmed, and investigate the logout issue right away. Could you share the account email and approximate charge dates so we can resolve this as quickly as possible?"
+    "suggested_reply": "We're sorry for the trouble. We're looking into the duplicate charge right away and will issue a refund if confirmed. We're also investigating the login issue—could you let us know your device/browser so we can resolve it quickly? Thank you for your patience."
   },
   "model": "claude-sonnet-5",
   "usage": {
     "input_tokens": 887,
-    "output_tokens": 335
+    "output_tokens": 323
   }
 }
-Now open http://localhost:5678 (demo@example.com / Demo-pass-1234), open workflow 09, click Executions.
-Every curl you run shows up there with the webhook input, the raw model reply, and the parsed triage.
+== the web page: index the PDFs (workflow 10) and the workflow list (08), then open /webhook/app
+  "chunks": 27,
+  "indexed": 13,
+  4 PDFs, 27 chunks in docs
+Open http://localhost:5678/webhook/app  (the page; search, triage, ask, open a PDF)
+Open http://localhost:5678             (the editor: demo@example.com / Demo-pass-1234; click Executions)

@@ -27,3 +27,17 @@ CREATE TABLE IF NOT EXISTS chat_log (
 );
 
 CREATE INDEX IF NOT EXISTS chat_log_session_idx ON chat_log (session_id, asked_at);
+
+-- PDF text for deterministic (full-text) search: one row per chunk of a document.
+-- tsv is maintained by Postgres itself from content; the GIN index makes @@ fast.
+CREATE TABLE IF NOT EXISTS docs (
+  id          bigserial PRIMARY KEY,
+  name        text NOT NULL,                -- file name inside the PDF folder
+  chunk_no    integer NOT NULL,
+  n_chunks    integer NOT NULL,
+  content     text NOT NULL,
+  tsv         tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+  indexed_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (name, chunk_no)
+);
+CREATE INDEX IF NOT EXISTS docs_tsv_idx ON docs USING GIN (tsv);

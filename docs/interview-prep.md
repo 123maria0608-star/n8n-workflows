@@ -112,6 +112,35 @@ The math itself, so it is not hand-waved: for vectors **a** and **b**,
 The Code node in workflow 07 computes exactly that in six lines before handing
 the vector to Postgres.
 
+## "Precise, deterministic search. Not AI. And show me the whole document."
+
+Two different tools for two different questions:
+
+- **Vector search** (workflows 07 and 08) answers "what is *about* this?". It is
+  approximate by design: it returns the nearest meaning, with a score, and the
+  same question can rank things differently after re-indexing.
+- **Full-text search** (workflows 10 and 11) answers "where do these words
+  appear?". It is deterministic: Postgres tokenizes the text once into a
+  `tsvector`, the query becomes a `tsquery`, and `@@` either matches or it does
+  not. Same query, same rows, every time. `websearch_to_tsquery` gives Google-style
+  syntax: quotes for a phrase, minus to exclude. `ts_rank_cd` orders by how many
+  matches and how close together, `ts_headline` returns the snippet with the hits
+  wrapped in `<mark>`. Exact mode skips all of that and runs `ILIKE '%phrase%'`,
+  which is the strictest possible: the characters, in that order.
+
+Workflow 10 fills the table: Read/Write Files reads every PDF in a folder, Extract
+from File turns each into text, a Code node cuts it into ~1,200-character chunks,
+and one `INSERT ... ON CONFLICT DO UPDATE` per chunk. The GIN index on the
+tsvector column is what keeps search fast at millions of rows.
+
+"Show the whole PDF": workflow 12 is a GET webhook that checks the requested name
+against the index (so nobody can ask for `../etc/passwd`), reads the file, and
+responds with the binary and `Content-Type: application/pdf`. The page puts that
+URL in an iframe, so the full document renders next to the results.
+
+The page itself is workflow 13: a GET webhook whose Respond node returns HTML. n8n
+is the web server.
+
 ## "Show me a chatbot that calls n8n and returns a workflow"
 
 Workflow 06. The Chat Trigger node gives you a hosted chat page. Each message

@@ -45,12 +45,12 @@ dc ps
 say "3/5  import credentials + workflows inside the container, publish, restart"
 dc exec -T n8n n8n import:credentials --input=/import/credentials.json
 dc exec -T n8n n8n import:workflow --separate --input=/import/workflows
-for id in mpSpeedToLead001 mpEndOfCallWb002 mpMissedCall0003 mpFollowupCron04 mpErrorAlert0005 mpChatBot0000006 mpLookupWf000007 mpIndexer0000008 mpTicketTriage09; do
+for id in $(node -e 'for (const f of require("fs").readdirSync("workflows")) if (f.endsWith(".json")) console.log(require("./workflows/"+f).id)'); do
   dc exec -T n8n n8n publish:workflow --id=$id >/dev/null
 done
 dc restart n8n >/dev/null
 for i in $(seq 1 120); do curl -sf "http://localhost:$PORT/healthz" >/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do [ "$(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')" -ge 9 ] && break; sleep 1; done
+for i in $(seq 1 60); do [ "$(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')" -ge 13 ] && break; sleep 1; done
 echo "  workflows activated: $(dc logs n8n 2>/dev/null | grep -c 'Activated workflow')"
 
 say "4/5  owner account, API key for workflow 08, mocks + mail sink on the laptop"
@@ -71,6 +71,8 @@ echo "  editor:  http://localhost:$PORT   (demo@example.com / Demo-pass-1234)"
 say "5/5  index the workflows into Postgres (08), then one lead event, so Executions has something in it"
 # `n8n execute` runs beside the server inside the same container; give its task-runner broker its own port.
 dc exec -T -e N8N_RUNNERS_BROKER_PORT=5680 n8n n8n execute --id mpIndexer0000008 2>&1 | grep -E '"indexed"' | sed 's/^ */  /' || true
+dc exec -T -e N8N_RUNNERS_BROKER_PORT=5681 n8n n8n execute --id mpDocsIngest0010 2>&1 | grep -E '"chunks"' | sed 's/^ */  /' || true
+echo "  page: http://localhost:$PORT/webhook/app"
 echo "  $(dc exec -T postgres psql -U n8n -d n8n -tAc 'select count(*) from workflow_index') workflows in Postgres workflow_index"
 curl -s -X POST "http://localhost:$PORT/webhook/lead" -H 'content-type: application/json' -H 'x-webhook-secret: demo-secret' \
   -d '{"contact_id":"c_101","first_name":"Dana","last_name":"R","phone":"(555) 555-0101","customData":{"service":"ceramic coating","vehicle":"Tesla Model 3"}}'

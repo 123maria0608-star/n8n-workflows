@@ -1,7 +1,9 @@
 # n8n workflows
 
-Nine n8n workflows that run end to end on a laptop with one command. Eight need no
-outside accounts; the ninth calls a real LLM. Five are automations I run in production for small-business
+Thirteen n8n workflows that run end to end on a laptop with one command, plus a web
+page served by n8n itself that drives them: deterministic full-text search over PDFs
+with the PDF shown in the page, a support-ticket triage form, and a chatbot. Twelve
+need no outside accounts; the triage one calls a real LLM. Five are automations I run in production for small-business
 clients (AI phone receptionists, speed-to-lead calling, missed-call rescue, CRM
 write-backs), rebuilt as n8n. Three are a chatbot on top of them: ask which
 workflow does what, get the answer from Postgres with pgvector, log the
@@ -14,8 +16,9 @@ bash demo/demo.sh                        # ~1 minute, prints everything it does
 bash demo/serve.sh                       # then open http://localhost:5678
 ```
 
-Or the one-container quick start most tutorials show (`docker run`, SQLite inside),
-which imports everything and fires a support ticket at workflow 09:
+Or the two-container quick start (`docker run` n8n with SQLite, plus a Postgres for
+search), which imports everything, fires a support ticket at workflow 09, indexes the
+PDFs, and opens the page at `http://localhost:5678/webhook/app`:
 
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env.local
@@ -55,6 +58,10 @@ on my machine.
 | 07 | [Lookup sub-workflow](workflows/07-lookup-workflow-subworkflow.json) | Called by 06 (Execute Workflow) | Embeds the question, `ORDER BY embedding <=> $1 LIMIT 3` in pgvector, returns the closest workflow with its cosine similarity. |
 | 08 | [Indexer](workflows/08-index-workflows-to-postgres.json) | Cron nightly, plus manual | Reads every workflow from n8n's own REST API, builds a description (name, trigger, nodes, sticky notes), embeds it, upserts into `workflow_index`. |
 | 09 | [Support ticket triage](workflows/09-support-ticket-triage.json) | Webhook `POST /ticket-triage` | Sends the ticket to Claude with a JSON schema (forced tool call), parses the structured triage (category, priority, sentiment, summary, suggested reply), answers the webhook with it. Needs `ANTHROPIC_API_KEY` in `.env.local`. |
+| 10 | [Index PDFs](workflows/10-docs-ingest-pdfs.json) | Manual, nightly | Reads every PDF in `demo/pdfs`, extracts the text, splits it into chunks, upserts into `docs`. Postgres keeps a full-text index on it. |
+| 11 | [Deterministic search](workflows/11-docs-search-api.json) | Webhook `POST /docs/search` | Keyword mode: `websearch_to_tsquery`, `ts_rank_cd`, `ts_headline` snippets. Exact mode: `ILIKE`. Same input, same rows, no model. |
+| 12 | [Serve a PDF](workflows/12-docs-serve-pdf.json) | Webhook `GET /docs/file?name=` | Validates the name against the index, reads the file, responds with the binary as `application/pdf` inline. |
+| 13 | [The web page](workflows/13-app-page.json) | Webhook `GET /app` | Responds with an HTML page whose buttons call 11, 12, 09 and the chat trigger. No separate web server. |
 
 ![All eight workflows published](docs/img/00-workflows.png)
 

@@ -1,0 +1,251 @@
+{
+  "id": "mpDocsIngest0010",
+  "name": "10 Docs: index PDFs into Postgres full-text search",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Index the PDFs\nReads every PDF in the docs folder, pulls the text out, splits it into chunks of about 1,200 characters, and upserts each chunk into `docs`. Postgres keeps a full-text index on the chunk text, so workflow 11 can search it with SQL and no AI.\n\nRun it again after dropping a new PDF in the folder. Re-runs update in place.",
+        "width": 600,
+        "height": 170
+      },
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Run now (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Nightly 02:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "docsDir",
+              "name": "docsDir",
+              "value": "/data/pdfs",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.docsDir }}/*.pdf",
+        "options": {}
+      },
+      "name": "Read every PDF in the folder",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Extract from File drops the binary, so remember the file name in json first.\nreturn $input.all().map(i => ({ json: { fileName: i.binary.data.fileName }, binary: i.binary }));\n"
+      },
+      "name": "Name the file",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "name": "Extract text from PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// One item per chunk. ~1,200 characters, cut at a sentence or line break when possible.\nconst out = [];\nconst items = $input.all();\nconst names = $('Name the file').all().map(i => i.json.fileName);\nfor (let k = 0; k < items.length; k++) {\n  const item = items[k];\n  const name = names[k] || item.json.fileName || 'unknown.pdf';\n  const text = String(item.json.text || '').replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n  const chunks = [];\n  let i = 0;\n  while (i < text.length) {\n    let end = Math.min(i + 1200, text.length);\n    if (end < text.length) {\n      const cut = Math.max(text.lastIndexOf('\\n\\n', end), text.lastIndexOf('. ', end));\n      if (cut > i + 400) end = cut + 1;\n    }\n    chunks.push(text.slice(i, end).trim());\n    i = end;\n  }\n  chunks.forEach((c, n) => out.push({ json: { name, chunk_no: n + 1, n_chunks: chunks.length, content: c, pages: item.json.numpages } }));\n}\nreturn out;\n"
+      },
+      "name": "Split into chunks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO docs (name, chunk_no, n_chunks, content, indexed_at)\nVALUES ($1, $2, $3, $4, now())\nON CONFLICT (name, chunk_no) DO UPDATE SET n_chunks = EXCLUDED.n_chunks, content = EXCLUDED.content, indexed_at = now()\nRETURNING name, chunk_no;",
+        "options": {
+          "queryReplacement": "={{ [$json.name, $json.chunk_no, $json.n_chunks, $json.content] }}"
+        }
+      },
+      "name": "Upsert chunk into docs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres (workflow index)",
+          "id": "mpCredPg00000005"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.all().map(i => i.json);\nconst byDoc = {};\nfor (const r of rows) byDoc[r.name] = (byDoc[r.name] || 0) + 1;\nreturn [{ json: { chunks: rows.length, documents: byDoc } }];\n"
+      },
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Run now (manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nightly 02:30": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read every PDF in the folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read every PDF in the folder": {
+      "main": [
+        [
+          {
+            "node": "Name the file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name the file": {
+      "main": [
+        [
+          {
+            "node": "Extract text from PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract text from PDF": {
+      "main": [
+        [
+          {
+            "node": "Split into chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into chunks": {
+      "main": [
+        [
+          {
+            "node": "Upsert chunk into docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert chunk into docs": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "mpErrorAlert0005"
+  }
+}
